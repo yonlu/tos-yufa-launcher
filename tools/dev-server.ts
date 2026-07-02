@@ -19,6 +19,7 @@ export interface ServedRequest {
 export interface DevServerOptions {
   root: string
   throttleBytesPerSec?: number
+  port?: number
 }
 
 export interface DevServer {
@@ -119,7 +120,7 @@ export async function createDevServer(opts: DevServerOptions): Promise<DevServer
     res.end()
   })
 
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+  await new Promise<void>((r) => server.listen(opts.port ?? 0, '127.0.0.1', r))
   const { port } = server.address() as AddressInfo
 
   return {
@@ -152,9 +153,11 @@ if (isMain) {
   }
   const root = opt('root') ?? './patch-store'
   const throttle = opt('throttle')
+  const port = opt('port')
   const server = await createDevServer({
     root,
     throttleBytesPerSec: throttle ? Number(throttle) : undefined,
+    port: port ? Number(port) : undefined,
   })
   console.log(`dev patch server: ${server.url}  (root: ${resolve(root)})`)
   setInterval(() => {

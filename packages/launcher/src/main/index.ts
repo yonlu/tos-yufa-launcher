@@ -11,6 +11,9 @@ import { initSelfUpdate, type SelfUpdater } from './selfUpdate'
 import { SettingsStore } from './settings'
 import { createMainWindow } from './window'
 
+// test/e2e hook: isolate settings & logs per run
+if (process.env['YUFA_USERDATA']) app.setPath('userData', process.env['YUFA_USERDATA'])
+
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
@@ -49,6 +52,12 @@ async function bootstrap(): Promise<void> {
       onState: (e: PatcherStateEvent) => {
         log.info(`patcher: ${e.state}${e.error ? ` (${e.error.code}: ${e.error.message ?? ''})` : ''}`)
         send(IPC.patcherState, e)
+        // e2e hook: YUFA_AUTO=update downloads on its own; =play also launches
+        const auto = process.env['YUFA_AUTO']
+        if (auto && e.state === 'update-available') setTimeout(() => void patcher.update(), 50)
+        if (auto === 'play' && (e.state === 'ready' || e.state === 'up-to-date')) {
+          setTimeout(() => void doLaunch(), 250)
+        }
       },
       onProgress: (e: PatcherProgressEvent) => send(IPC.patcherProgress, e),
     })
@@ -83,7 +92,7 @@ async function bootstrap(): Promise<void> {
   })
   ipcMain.handle(IPC.patcherCancel, () => patcher.cancel())
 
-  ipcMain.handle(IPC.gameLaunch, async (): Promise<LaunchResult> => {
+  async function doLaunch(): Promise<LaunchResult> {
     const s = settings.get()
     const st = patcher.state
     const playable =
@@ -102,7 +111,9 @@ async function bootstrap(): Promise<void> {
       else if (s.afterLaunch === 'minimize') win?.minimize()
     }
     return result
-  })
+  }
+
+  ipcMain.handle(IPC.gameLaunch, () => doLaunch())
 
   ipcMain.handle(IPC.settingsGet, (): Settings => settings.get())
   ipcMain.handle(IPC.settingsSet, (_e, partial: Partial<Settings>): Settings => {
@@ -146,6 +157,23 @@ async function bootstrap(): Promise<void> {
   // ---- window & lifecycle ----
   win = createMainWindow()
   updater.check()
+
+  // CI/dev smoke hook: capture the rendered window and exit
+  const screenshotPath = process.env['YUFA_SCREENSHOT']
+  if (screenshotPath) {
+    setTimeout(async () => {
+      try {
+        const image = await win!.webContents.capturePage()
+        const { promises: fsp } = await import('node:fs')
+        await fsp.writeFile(screenshotPath, image.toPNG())
+        log.info(`screenshot written to ${screenshotPath}`)
+      } catch (err) {
+        log.error('screenshot failed', err)
+      } finally {
+        app.quit()
+      }
+    }, 4500)
+  }
 
   app.on('second-instance', () => {
     if (win) {
