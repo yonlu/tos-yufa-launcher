@@ -1,0 +1,19 @@
+appId: br.com.yufa.launcher
+productName: Yufa ToS Classic Launcher
+electronVersion: 43.0.0
+directories:
+  output: release-builds
+files:
+  - out/**
+  - package.json
+asar: true
+win:
+  target: nsis
+nsis:
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: false
+  artifactName: Yufa-Launcher-Setup-${version}.exe
+publish:
+  provider: generic
+  url: https://patch.REPLACE_WITH_DOMAIN/launcher/

@@ -172,7 +172,7 @@ async function bootstrap(): Promise<void> {
       } finally {
         app.quit()
       }
-    }, 4500)
+    }, Number(process.env['YUFA_SCREENSHOT_DELAY'] ?? 4500))
   }
 
   app.on('second-instance', () => {
