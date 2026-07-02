@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "2026-07-01-lancamento-launcher",
+      "date": "2026-07-01",
+      "pinned": true,
+      "title": {
+        "pt-BR": "Novo launcher!",
+        "en": "New launcher!"
+      },
+      "body": {
+        "pt-BR": "Bem-vindo ao novo launcher do Yufa ToS Classic. As atualizações do jogo agora são baixadas automaticamente.",
+        "en": "Welcome to the new Yufa ToS Classic launcher. Game updates are now downloaded automatically."
+      }
+    }
+  ]
+}

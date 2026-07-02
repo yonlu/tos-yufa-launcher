@@ -1,0 +1,11 @@
+{
+  "name": "@yufa/publish-cli",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1078.0",
+    "@yufa/shared": "*",
+    "commander": "^15.0.0"
+  }
+}

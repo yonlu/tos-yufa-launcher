@@ -1,0 +1,11 @@
+{
+  "bucket": "yufa-patch",
+  "endpoint": "https://REPLACE_WITH_ACCOUNT_ID.r2.cloudflarestorage.com",
+  "publicBaseUrl": "https://patch.REPLACE_WITH_DOMAIN/",
+  "manifestKey": "manifest.json",
+  "patchesPrefix": "patches/",
+  "newsKey": "news/news.json",
+  "newsImagesPrefix": "news/img/",
+  "launcherPrefix": "launcher/",
+  "grandfatherRevision": 234929
+}
