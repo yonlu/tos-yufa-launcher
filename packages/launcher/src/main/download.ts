@@ -58,7 +58,15 @@ export interface EngineOptions {
   backoffMs?: (attempt: number) => number
   progressIntervalMs?: number
   onProgress?: (p: DownloadProgress) => void
+  /** Awaited after each file is verified and renamed into place. */
+  onFileComplete?: (job: DownloadJob, index: number) => void | Promise<void>
   signal?: AbortSignal
+}
+
+export async function sha256File(path: string): Promise<string> {
+  const hash = createHash('sha256')
+  await hashFileInto(hash, path)
+  return hash.digest('hex')
 }
 
 function isAbortError(err: unknown): boolean {
@@ -285,6 +293,7 @@ export async function downloadAll(jobs: DownloadJob[], opts: EngineOptions = {})
       }
     }
 
+    await opts.onFileComplete?.(job, index)
     overallBase += job.size
     fileBytes = 0
     emit(true)

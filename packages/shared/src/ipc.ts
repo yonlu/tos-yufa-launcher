@@ -26,6 +26,7 @@ export const IPC = {
 export type PatcherStateName =
   | 'idle'
   | 'checking'
+  | 'update-available'
   | 'up-to-date'
   | 'updating'
   | 'verifying'
