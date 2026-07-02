@@ -24,10 +24,13 @@ export function StatusArea() {
       statusLine = t('status.ready', { revision: patcher.plan?.targetRevision ?? '' })
       break
     case 'update-available':
-      statusLine = t('status.updateAvailable', {
-        count: patcher.plan?.fileCount ?? 0,
-        size: formatBytes(patcher.plan?.totalBytes ?? 0),
-      })
+      statusLine =
+        (patcher.plan?.fileCount ?? 0) > 0
+          ? t('status.updateAvailable', {
+              count: patcher.plan?.fileCount ?? 0,
+              size: formatBytes(patcher.plan?.totalBytes ?? 0),
+            })
+          : t('status.cleanupAvailable', { count: patcher.plan?.deleteCount ?? 0 })
       break
     case 'updating':
     case 'repairing':

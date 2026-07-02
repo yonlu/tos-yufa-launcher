@@ -302,6 +302,7 @@ export class Patcher {
   private summary(plan: UpdatePlan): PlanSummary {
     return {
       fileCount: plan.toDownload.length,
+      deleteCount: plan.toDelete.length,
       totalBytes: plan.totalBytes,
       targetRevision: plan.targetRevision,
       localRevision: plan.localRevision,

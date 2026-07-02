@@ -14,6 +14,7 @@
   "status.checking": "Procurando atualizações…",
   "status.upToDate": "Jogo atualizado — revisão {{revision}}",
   "status.updateAvailable": "{{count}} arquivo(s) para baixar — {{size}}",
+  "status.cleanupAvailable": "{{count}} arquivo(s) para remover (rollback do servidor)",
   "status.updating": "Baixando {{file}} ({{index}}/{{count}})",
   "status.hashing": "Conferindo {{file}} ({{index}}/{{count}})",
   "status.speed": "{{speed}}/s — {{eta}} restantes",

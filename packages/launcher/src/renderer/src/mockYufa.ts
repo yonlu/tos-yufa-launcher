@@ -31,7 +31,7 @@ export function installMockIfNeeded(): void {
     allowOfflinePlay: true,
   }
 
-  const plan = { fileCount: 3, totalBytes: 157_286_400, targetRevision: 234932, localRevision: 234929 }
+  const plan = { fileCount: 3, deleteCount: 0, totalBytes: 157_286_400, targetRevision: 234932, localRevision: 234929 }
 
   function emitState(e: PatcherStateEvent): void {
     stateListeners.forEach((cb) => cb(e))

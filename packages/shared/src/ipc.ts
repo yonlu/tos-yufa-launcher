@@ -55,6 +55,7 @@ export interface ErrorInfo {
 
 export interface PlanSummary {
   fileCount: number
+  deleteCount: number
   totalBytes: number
   targetRevision: number
   localRevision: number

@@ -14,6 +14,7 @@
   "status.checking": "Looking for updates…",
   "status.upToDate": "Game up to date — revision {{revision}}",
   "status.updateAvailable": "{{count}} file(s) to download — {{size}}",
+  "status.cleanupAvailable": "{{count}} file(s) to remove (server rollback)",
   "status.updating": "Downloading {{file}} ({{index}}/{{count}})",
   "status.hashing": "Checking {{file}} ({{index}}/{{count}})",
   "status.speed": "{{speed}}/s — {{eta}} left",
