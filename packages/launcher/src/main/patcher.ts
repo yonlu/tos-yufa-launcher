@@ -72,6 +72,10 @@ export class Patcher {
     return this.lastState
   }
 
+  get loadedManifest(): Manifest | null {
+    return this.manifest
+  }
+
   async check(): Promise<PatcherStateEvent> {
     this.desyncRetried = false
     return this.checkInternal()
