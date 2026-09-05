@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -9,8 +9,10 @@ export function createMainWindow(): BrowserWindow {
     maximizable: false,
     frame: false,
     show: false,
-    backgroundColor: '#0b0e14',
+    backgroundColor: '#ebe7dc',
     title: 'Yufa | ToS Classic',
+    // packaged builds get the icon from the exe; in dev, point at buildResources
+    ...(app.isPackaged ? {} : { icon: join(__dirname, '../../build/icon.png') }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

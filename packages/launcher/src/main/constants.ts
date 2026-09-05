@@ -10,4 +10,4 @@ export const LAUNCHER_FEED_URL =
 
 export const FALLBACK_NEWS_URL = MANIFEST_URL.replace(/manifest\.json.*$/, 'news/news.json')
 
-export const DEFAULT_GAME_DIR = 'C:\\tos-servers\\Classic'
+export const DEFAULT_GAME_DIR = 'C:\\tree of savior servers\\Classic'

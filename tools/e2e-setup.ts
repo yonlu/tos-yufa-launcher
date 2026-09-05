@@ -34,7 +34,7 @@ await mkdir(storeDir, { recursive: true })
 await mkdir(staging, { recursive: true })
 
 await writeFile(join(gameDir, 'release', 'release.revision.txt'), String(GRANDFATHER_REVISION))
-await writeFile(join(gameDir, 'release', 'Client_tos.exe'), 'stub client - not a real executable')
+await writeFile(join(gameDir, 'release', 'Yuka.exe'), 'stub client - not a real executable')
 await writeFile(join(gameDir, 'patch', patchFileName(11072)), randomBytes(4096))
 
 const cfg: PublishConfig = {

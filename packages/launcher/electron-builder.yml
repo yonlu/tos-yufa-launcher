@@ -9,6 +9,7 @@ files:
 asar: true
 win:
   target: nsis
+  icon: build/icon.ico
 nsis:
   oneClick: true
   perMachine: false

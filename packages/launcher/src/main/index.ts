@@ -104,7 +104,14 @@ async function bootstrap(): Promise<void> {
     }
     if (await isGameRunning()) return { ok: false, error: { code: 'game-running' } }
 
-    const result = await launchGame(gamePaths(s.gamePath), s.launchArgs)
+    // test/e2e hook: launch a real client while patching runs against a sandbox game dir
+    const paths = gamePaths(s.gamePath)
+    const launchExe = process.env['YUFA_LAUNCH_EXE']
+    if (launchExe) {
+      paths.clientExe = launchExe
+      paths.releaseDir = dirname(launchExe)
+    }
+    const result = await launchGame(paths, s.launchArgs)
     log.info(`game launch: ${result.ok ? 'ok' : `failed (${result.error?.message ?? ''})`}`)
     if (result.ok) {
       if (s.afterLaunch === 'quit') setTimeout(() => app.quit(), 1500)

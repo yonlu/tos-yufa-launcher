@@ -46,6 +46,7 @@ export type ErrorCode =
   | 'patch-dir-readonly'
   | 'download-failed'
   | 'av-suspected'
+  | 'elevation-declined'
 
 export interface ErrorInfo {
   code: ErrorCode

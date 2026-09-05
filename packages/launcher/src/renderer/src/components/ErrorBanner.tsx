@@ -9,12 +9,12 @@ export function ErrorBanner() {
   const { code, message } = patcher.error
 
   return (
-    <div className="mx-8 mb-3 rounded-lg border border-red-500/25 bg-red-950/40 px-4 py-3">
-      <p className="text-sm text-red-200">{t(`error.${code}`)}</p>
+    <div className="mx-8 mb-3 rounded-tos-panel border border-tos-burgundy/30 bg-tos-cream/90 px-4 py-3 shadow-tos-panel backdrop-blur-sm">
+      <p className="text-sm text-tos-burgundy">{t(`error.${code}`)}</p>
       {code === 'offline' && patcher.offlinePlayable && (
-        <p className="mt-0.5 text-xs text-red-300/70">{t('error.offlinePlayable')}</p>
+        <p className="mt-0.5 text-xs text-tos-burgundy/70">{t('error.offlinePlayable')}</p>
       )}
-      {message && <p className="mt-0.5 break-all text-[10px] text-red-400/50">{message}</p>}
+      {message && <p className="mt-0.5 break-all text-[10px] text-tos-brown-muted">{message}</p>}
     </div>
   )
 }

@@ -29,7 +29,7 @@ beforeEach(async () => {
   await mkdir(join(gameDir, 'patch'), { recursive: true })
   await mkdir(join(gameDir, 'release'), { recursive: true })
   await writeFile(join(gameDir, 'release', 'release.revision.txt'), String(GF))
-  await writeFile(join(gameDir, 'release', 'Client_tos.exe'), 'stub')
+  await writeFile(join(gameDir, 'release', 'Yuka.exe'), 'stub')
   await writeFile(join(gameDir, 'patch', patchFileName(11072)), randomBytes(64)) // grandfathered base file
 
   server = await createDevServer({ root: storeDir })

@@ -9,9 +9,11 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
 
   if (!open || !settings) return null
 
-  const label = 'mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400'
+  const label = 'mb-1 block text-xs font-medium uppercase tracking-wide text-tos-brown-light'
   const field =
-    'w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm text-slate-200 outline-none focus:border-amber-400/50'
+    'w-full rounded-md border border-tos-input-border bg-tos-input-bg px-3 py-2 text-sm text-tos-brown outline-none focus:border-tos-orange'
+  const surfaceButton =
+    'rounded-md bg-tos-tan px-3 py-2 text-sm text-tos-brown-light hover:bg-tos-border hover:text-tos-brown'
 
   async function browse() {
     const result = await selectGamePath()
@@ -19,27 +21,23 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-[540px] rounded-xl border border-white/10 bg-slate-900 p-6 shadow-2xl"
+        className="animate-fade-up w-[540px] rounded-tos-panel border border-tos-border bg-tos-cream p-6 opacity-0 shadow-xl [animation-duration:0.3s]"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="mb-5 text-lg font-semibold text-slate-100">{t('settings.title')}</h2>
+        <h2 className="font-display mb-5 text-lg font-bold text-tos-burgundy">{t('settings.title')}</h2>
 
         <div className="space-y-4">
           <div>
             <label className={label}>{t('settings.gamePath')}</label>
             <div className="flex gap-2">
               <input className={`${field} flex-1`} value={settings.gamePath} readOnly />
-              <button
-                type="button"
-                onClick={() => void browse()}
-                className="shrink-0 rounded-md bg-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/15"
-              >
+              <button type="button" onClick={() => void browse()} className={`shrink-0 ${surfaceButton}`}>
                 {t('settings.browse')}
               </button>
             </div>
-            {invalidPath && <p className="mt-1 text-xs text-red-400">{t('settings.invalidPath')}</p>}
+            {invalidPath && <p className="mt-1 text-xs text-tos-burgundy">{t('settings.invalidPath')}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -80,28 +78,28 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
             />
           </div>
 
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-300">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-tos-brown">
             <input
               type="checkbox"
               checked={settings.allowOfflinePlay}
               onChange={(e) => void saveSettings({ allowOfflinePlay: e.target.checked })}
-              className="h-4 w-4 accent-amber-500"
+              className="h-4 w-4 accent-tos-orange"
             />
             {t('settings.allowOffline')}
           </label>
 
-          <div className="rounded-lg border border-white/5 bg-white/[0.03] p-3">
+          <div className="rounded-tos-panel border border-tos-border bg-tos-tan/60 p-3">
             <button
               type="button"
               onClick={() => {
                 void repair()
                 onClose()
               }}
-              className="rounded-md bg-sky-600/80 px-3 py-2 text-sm font-medium text-white hover:bg-sky-500"
+              className={`font-display font-bold ${surfaceButton}`}
             >
               {t('settings.repair')}
             </button>
-            <p className="mt-2 text-xs text-slate-500">{t('settings.repairHint')}</p>
+            <p className="mt-2 text-xs text-tos-brown-muted">{t('settings.repairHint')}</p>
           </div>
         </div>
 
@@ -109,15 +107,11 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
           <button
             type="button"
             onClick={() => void window.yufa.appOpenLogs()}
-            className="text-xs text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+            className="text-xs text-tos-burgundy underline-offset-2 hover:text-tos-red-hover hover:underline"
           >
             {t('settings.openLogs')}
           </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md bg-white/10 px-4 py-2 text-sm text-slate-200 hover:bg-white/15"
-          >
+          <button type="button" onClick={onClose} className={surfaceButton}>
             {t('settings.close')}
           </button>
         </div>

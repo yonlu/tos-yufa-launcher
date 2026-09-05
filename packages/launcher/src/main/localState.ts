@@ -17,7 +17,7 @@ export function gamePaths(gameDir: string): GamePaths {
     patchDir: join(gameDir, 'patch'),
     releaseDir,
     revisionFile: join(releaseDir, 'release.revision.txt'),
-    clientExe: join(releaseDir, 'Client_tos.exe'),
+    clientExe: join(releaseDir, 'Yuka.exe'),
   }
 }
 

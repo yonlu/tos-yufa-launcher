@@ -53,9 +53,9 @@ export function StatusArea() {
   return (
     <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 pr-8">
       <div className="flex items-baseline gap-3">
-        {statusLine && <p className="truncate text-sm text-slate-300">{statusLine}</p>}
+        {statusLine && <p className="truncate text-sm text-tos-brown">{statusLine}</p>}
         {showSpeed && (
-          <p className="shrink-0 text-xs text-slate-500">
+          <p className="shrink-0 text-xs text-tos-brown-muted">
             {t('status.speed', {
               speed: formatBytes(progress!.bytesPerSec),
               eta: progress!.etaSec !== null ? formatEta(progress!.etaSec) : '…',
@@ -66,16 +66,16 @@ export function StatusArea() {
           <button
             type="button"
             onClick={() => void cancel()}
-            className="shrink-0 text-xs text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+            className="shrink-0 text-xs text-tos-brown-light underline-offset-2 hover:text-tos-burgundy hover:underline"
           >
             {t('play.cancel')}
           </button>
         )}
       </div>
       {showBar && (
-        <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-tos-brown/10">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-sky-500 to-sky-400 transition-[width] duration-300"
+            className="h-full rounded-full bg-gradient-to-r from-tos-orange-light to-tos-orange transition-[width] duration-300"
             style={{ width: `${percent}%` }}
           />
         </div>

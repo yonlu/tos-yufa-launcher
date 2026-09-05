@@ -1,5 +1,11 @@
 {
   "app.title": "Yufa | ToS Classic",
+  "app.subtitle": "Tree of Savior Classic",
+  "hero.title": "Tree of Savior",
+  "hero.highlight": "Classic",
+  "titlebar.settings": "Configurações",
+  "titlebar.minimize": "Minimizar",
+  "titlebar.close": "Fechar",
   "play.checking": "Verificando…",
   "play.update": "Atualizar",
   "play.updating": "Atualizando… {{percent}}%",
@@ -25,7 +31,7 @@
   "settings.title": "Configurações",
   "settings.gamePath": "Pasta do jogo",
   "settings.browse": "Procurar…",
-  "settings.invalidPath": "Pasta inválida: precisa conter release\\Client_tos.exe e patch\\",
+  "settings.invalidPath": "Pasta inválida: precisa conter release\\Yuka.exe e patch\\",
   "settings.language": "Idioma",
   "settings.launchArgs": "Argumentos de inicialização",
   "settings.afterLaunch": "Ao iniciar o jogo",
@@ -49,6 +55,7 @@
   "error.patch-dir-readonly": "Sem permissão para escrever na pasta do jogo.",
   "error.download-failed": "Falha no download. Tente novamente.",
   "error.av-suspected": "O antivírus pode ter bloqueado um arquivo do jogo. Adicione a pasta do jogo às exceções.",
+  "error.elevation-declined": "O jogo precisa de permissão de administrador para iniciar. Aceite o aviso do Windows e tente de novo.",
   "updater.downloading": "Baixando atualização do launcher… {{percent}}%",
   "updater.ready": "Atualização do launcher pronta.",
   "updater.restart": "Reiniciar agora"

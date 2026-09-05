@@ -7,3 +7,4 @@ coverage/
 .env.*
 *.tsbuildinfo
 release-builds/
+e2e-sandbox/
