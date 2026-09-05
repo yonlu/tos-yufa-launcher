@@ -68,14 +68,28 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
             </div>
           </div>
 
-          <div>
-            <label className={label}>{t('settings.launchArgs')}</label>
-            <input
-              className={field}
-              defaultValue={settings.launchArgs}
-              onBlur={(e) => void saveSettings({ launchArgs: e.target.value })}
-              spellCheck={false}
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={label}>{t('settings.launchArgs')}</label>
+              <input
+                className={field}
+                defaultValue={settings.launchArgs}
+                onBlur={(e) => void saveSettings({ launchArgs: e.target.value })}
+                spellCheck={false}
+              />
+            </div>
+            <div>
+              <label className={label}>{t('settings.downloadConcurrency')}</label>
+              <select
+                className={field}
+                value={settings.downloadConcurrency}
+                onChange={(e) => void saveSettings({ downloadConcurrency: Number(e.target.value) as 1 | 2 | 3 })}
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+              </select>
+            </div>
           </div>
 
           <label className="flex cursor-pointer items-center gap-2 text-sm text-tos-brown">

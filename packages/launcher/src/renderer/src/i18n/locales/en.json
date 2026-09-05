@@ -34,6 +34,7 @@
   "settings.invalidPath": "Invalid folder: it must contain release\\Yuka.exe and patch\\",
   "settings.language": "Language",
   "settings.launchArgs": "Launch arguments",
+  "settings.downloadConcurrency": "Download connections",
   "settings.afterLaunch": "After launching the game",
   "settings.afterLaunch.quit": "Close the launcher",
   "settings.afterLaunch.minimize": "Minimize the launcher",

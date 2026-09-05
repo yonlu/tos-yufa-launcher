@@ -41,6 +41,8 @@ export interface PatcherDeps {
   onState?: (e: PatcherStateEvent) => void
   onProgress?: (e: PatcherProgressEvent) => void
   engineOptions?: Partial<EngineOptions>
+  /** Read at the start of every update so a settings change applies to the next run. */
+  downloadConcurrency?: () => number
   manifestTimeoutMs?: number
 }
 
@@ -157,13 +159,25 @@ export class Patcher {
         size: f.size,
         sha256: f.sha256,
       }))
+      // Files may complete out of order: the revision file only ever names an
+      // archive whose every lower-revision predecessor in the plan is also done.
+      const completed = new Set<number>()
+      let contiguous = 0
       await downloadAll(jobs, {
         ...this.deps.engineOptions,
         fetchImpl: this.deps.fetchImpl ?? this.deps.engineOptions?.fetchImpl,
+        concurrency: this.deps.downloadConcurrency?.() ?? this.deps.engineOptions?.concurrency,
         signal: this.abort.signal,
         onProgress: (p) => this.deps.onProgress?.({ phase: 'downloading', ...p }),
-        onFileComplete: async (job) => {
-          const rev = parsePatchFileName(job.name)
+        onFileComplete: async (_job, index) => {
+          completed.add(index)
+          let advanced = false
+          while (completed.has(contiguous)) {
+            contiguous += 1
+            advanced = true
+          }
+          if (!advanced) return
+          const rev = parsePatchFileName(jobs[contiguous - 1]!.name)
           if (rev !== null) await writeLocalRevision(this.paths, rev)
         },
       })

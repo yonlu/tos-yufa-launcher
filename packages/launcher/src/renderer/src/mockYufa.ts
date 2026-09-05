@@ -27,7 +27,7 @@ export function installMockIfNeeded(): void {
     language: (params.get('lang') as 'pt-BR' | 'en') ?? 'pt-BR',
     launchArgs: '-SERVICE /S',
     afterLaunch: 'quit',
-    downloadConcurrency: 1,
+    downloadConcurrency: 2,
     allowOfflinePlay: true,
   }
 

@@ -224,6 +224,44 @@ describe('Patcher integration (publish CLI → dev server → patcher → fixtur
     expect(ev.error?.code).toBe('manifest-cdn-desync')
   })
 
+  it('with parallel downloads, a higher archive finishing before a failed lower one does not advance the revision past the gap', async () => {
+    const slowStoreDir = await mkdtemp(join(tmpdir(), 'yufa-slowstore-'))
+    const slowServer = await createDevServer({ root: slowStoreDir, throttleBytesPerSec: 512 * 1024 })
+    try {
+      const slowCtx: Ctx = {
+        cfg: { ...cfg, publicBaseUrl: `${slowServer.url}/` },
+        store: new LocalDirStore(slowStoreDir),
+        log: () => {},
+      }
+      const big = join(staging, patchFileName(GF + 1))
+      await writeFile(big, randomBytes(256 * 1024))
+      const small = join(staging, patchFileName(GF + 2))
+      await writeFile(small, randomBytes(16 * 1024))
+      await cliPatch(slowCtx, { files: [big, small] })
+      const bigSha = createHash('sha256').update(await readFile(big)).digest('hex')
+
+      const deps: Partial<PatcherDeps> = {
+        manifestUrl: `${slowServer.url}/manifest.json`,
+        downloadConcurrency: () => 2,
+      }
+      const p = makePatcher({ ...deps, engineOptions: { retries: 0, backoffMs: () => 1, progressIntervalMs: 5 } })
+      await p.check()
+      slowServer.corruptNext(bigSha)
+
+      const done = await p.update()
+      expect(done.state).toBe('error')
+      expect(existsSync(join(gameDir, 'patch', patchFileName(GF + 2)))).toBe(true)
+      expect(await readLocalRevision(gamePaths(gameDir))).toBe(GF)
+
+      const p2 = makePatcher(deps)
+      await p2.check()
+      expect((await p2.update()).state).toBe('ready')
+      expect(await readLocalRevision(gamePaths(gameDir))).toBe(GF + 2)
+    } finally {
+      await slowServer.close()
+    }
+  })
+
   it('cancel aborts mid-download, keeps the .part, and a later run resumes with Range', async () => {
     const slowStoreDir = await mkdtemp(join(tmpdir(), 'yufa-slowstore-'))
     const slowServer = await createDevServer({ root: slowStoreDir, throttleBytesPerSec: 128 * 1024 })

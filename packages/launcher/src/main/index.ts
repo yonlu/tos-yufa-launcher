@@ -48,6 +48,7 @@ async function bootstrap(): Promise<void> {
       manifestUrl: MANIFEST_URL,
       launcherVersion: app.getVersion(),
       fetchImpl: electronFetch,
+      downloadConcurrency: () => settings.get().downloadConcurrency,
       isGameRunning,
       onState: (e: PatcherStateEvent) => {
         log.info(`patcher: ${e.state}${e.error ? ` (${e.error.code}: ${e.error.message ?? ''})` : ''}`)

@@ -34,6 +34,7 @@
   "settings.invalidPath": "Pasta inválida: precisa conter release\\Yuka.exe e patch\\",
   "settings.language": "Idioma",
   "settings.launchArgs": "Argumentos de inicialização",
+  "settings.downloadConcurrency": "Conexões de download",
   "settings.afterLaunch": "Ao iniciar o jogo",
   "settings.afterLaunch.quit": "Fechar o launcher",
   "settings.afterLaunch.minimize": "Minimizar o launcher",
