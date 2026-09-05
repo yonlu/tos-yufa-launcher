@@ -4,7 +4,7 @@ import log from 'electron-log/main'
 import { IPC, type LaunchResult, type PatcherProgressEvent, type PatcherStateEvent, type Settings } from '@yufa/shared'
 import { DEFAULT_GAME_DIR, FALLBACK_NEWS_URL, LAUNCHER_FEED_URL, MANIFEST_URL } from './constants'
 import { isGameRunning, launchGame } from './game'
-import { cleanupStaleParts, gamePaths, isValidGameDir, probePatchDirWritable } from './localState'
+import { cleanupStaleParts, gamePaths, isValidGameDir, probeGameDirWritable } from './localState'
 import { fetchNews } from './news'
 import { Patcher } from './patcher'
 import { initSelfUpdate, type SelfUpdater } from './selfUpdate'
@@ -53,9 +53,10 @@ async function bootstrap(): Promise<void> {
       onState: (e: PatcherStateEvent) => {
         log.info(`patcher: ${e.state}${e.error ? ` (${e.error.code}: ${e.error.message ?? ''})` : ''}`)
         send(IPC.patcherState, e)
-        // e2e hook: YUFA_AUTO=update downloads on its own; =play also launches
+        // e2e hook: YUFA_AUTO=update installs/downloads on its own; =play also launches
         const auto = process.env['YUFA_AUTO']
         if (auto && e.state === 'update-available') setTimeout(() => void patcher.update(), 50)
+        if (auto && e.state === 'not-installed') setTimeout(() => void patcher.install(), 50)
         if (auto === 'play' && (e.state === 'ready' || e.state === 'up-to-date')) {
           setTimeout(() => void doLaunch(), 250)
         }
@@ -70,14 +71,17 @@ async function bootstrap(): Promise<void> {
   })
 
   // ---- IPC ----
+  // A folder that is not a valid game folder is reported by the patcher as
+  // not-installed; only an unset path is an error here (the install screen
+  // that picks one is issue #6).
   ipcMain.handle(IPC.patcherCheck, async () => {
     const gameDir = settings.get().gamePath
-    if (!(await isValidGameDir(gameDir))) {
+    if (!gameDir) {
       const e: PatcherStateEvent = { state: 'error', error: { code: 'bad-game-path', message: gameDir } }
       send(IPC.patcherState, e)
       return e
     }
-    if (!(await probePatchDirWritable(gamePaths(gameDir)))) {
+    if ((await isValidGameDir(gameDir)) && !(await probeGameDirWritable(gamePaths(gameDir)))) {
       const e: PatcherStateEvent = { state: 'error', error: { code: 'patch-dir-readonly' } }
       send(IPC.patcherState, e)
       return e

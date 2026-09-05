@@ -1,14 +1,17 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
-import { patch } from '../packages/publish-cli/src/commands'
+import { dirname, join, resolve } from 'node:path'
+import { release } from '../packages/publish-cli/src/commands'
 import { DEFAULT_EXCLUDES, DEFAULT_SEED_ONCE, type PublishConfig } from '../packages/publish-cli/src/config'
 import { LocalDirStore } from '../packages/publish-cli/src/store'
-import { GRANDFATHER_REVISION, patchFileName } from '../packages/shared/src/index'
+import { patchFileName } from '../packages/shared/src/index'
 
 /**
- * Builds a local end-to-end sandbox: a fixture game dir (fake client) and a
- * published patch store to serve with tools/dev-server.ts.
+ * Builds a local end-to-end sandbox: a fake full game tree published as a
+ * Build into a local store (serve it with tools/dev-server.ts), and a game
+ * dir holding only a stub client — a "located existing install" the launcher
+ * heals by downloading the whole Build. Point YUFA_GAME_DIR at an empty
+ * folder instead to exercise the not-installed → install path.
  *
  *   npx tsx tools/e2e-setup.ts --base <dir> [--url http://127.0.0.1:8787/] [--count 2] [--size 3000000]
  */
@@ -23,19 +26,33 @@ const base = resolve(opt('base', './e2e-sandbox'))
 const url = opt('url', 'http://127.0.0.1:8787/')
 const count = Number(opt('count', '2'))
 const size = Number(opt('size', '3000000'))
+const BASE_REVISION = 1116000
 
 const gameDir = join(base, 'game')
 const storeDir = join(base, 'store')
-const staging = join(base, 'staging')
+const treeDir = join(base, 'tree')
 
-await mkdir(join(gameDir, 'patch'), { recursive: true })
+async function put(rel: string, content: Buffer | string): Promise<void> {
+  const abs = join(treeDir, ...rel.split('/'))
+  await mkdir(dirname(abs), { recursive: true })
+  await writeFile(abs, content)
+}
+
 await mkdir(join(gameDir, 'release'), { recursive: true })
 await mkdir(storeDir, { recursive: true })
-await mkdir(staging, { recursive: true })
 
-await writeFile(join(gameDir, 'release', 'release.revision.txt'), String(GRANDFATHER_REVISION))
+// the fake full game tree: a few data archives, `count` patch archives of `size` bytes, a client, a Seed-once layout
+await put('data/bg.ipf', randomBytes(256 * 1024))
+await put('data/ui.ipf', randomBytes(64 * 1024))
+await put('release/Yuka.exe', 'stub client - not a real executable')
+await put('release/a.dll', randomBytes(16 * 1024))
+await put('release/uilayout.xml', '<layout/>')
+for (let i = 1; i <= count; i++) await put(`patch/${patchFileName(BASE_REVISION + i)}`, randomBytes(size))
+// Player-owned junk the hard guard must drop
+await put('release/user.xml', '<user login="operator"/>')
+await put('release/release.revision.txt', String(BASE_REVISION + count))
+
 await writeFile(join(gameDir, 'release', 'Yuka.exe'), 'stub client - not a real executable')
-await writeFile(join(gameDir, 'patch', patchFileName(11072)), randomBytes(4096))
 
 const cfg: PublishConfig = {
   bucket: 'e2e',
@@ -53,15 +70,7 @@ const cfg: PublishConfig = {
   hashCache: join(base, 'hash-cache.json'),
 }
 const store = new LocalDirStore(storeDir)
-
-const files: string[] = []
-for (let i = 1; i <= count; i++) {
-  const name = patchFileName(GRANDFATHER_REVISION + i)
-  const path = join(staging, name)
-  await writeFile(path, randomBytes(size))
-  files.push(path)
-}
-await patch({ cfg, store }, { files })
+await release({ cfg, store }, { dir: treeDir, label: 'e2e' })
 
 await store.putText(
   'news/news.json',

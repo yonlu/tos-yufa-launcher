@@ -45,7 +45,10 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
     yufa.onPatcherState((e) => {
       set((s) => ({
         patcher: e,
-        progress: e.state === 'updating' || e.state === 'repairing' || e.state === 'verifying' ? s.progress : null,
+        progress:
+          e.state === 'installing' || e.state === 'updating' || e.state === 'repairing' || e.state === 'verifying'
+            ? s.progress
+            : null,
       }))
     })
     yufa.onPatcherProgress((e) => set({ progress: e }))

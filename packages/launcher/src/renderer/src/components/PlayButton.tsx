@@ -37,6 +37,10 @@ export function PlayButton() {
         return { label: t('play.checking'), disabled: true, variant: 'neutral', spinner: true }
       case 'update-available':
         return { label: t('play.update'), onClick: () => void startUpdate(), disabled: false, variant: 'update' }
+      case 'not-installed':
+        // the install screen (folder choice, free space, Install) is issue #6
+        return { label: t('play.install'), disabled: true, variant: 'update' }
+      case 'installing':
       case 'updating':
         return {
           label: t('play.updating', { percent }),

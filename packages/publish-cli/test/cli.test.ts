@@ -138,6 +138,7 @@ describe('release', () => {
     }
     await put(t.game, 'release/chat_config_1234567.xml')
     await put(t.game, 'data/leftover.ipf.part')
+    await put(t.game, '.yufa-install.json', '{}')
     const loose: PublishConfig = { ...cfg, excludes: [] }
 
     await release({ ...ctx, cfg: loose }, { dir: t.game })
@@ -146,7 +147,7 @@ describe('release', () => {
     expect(paths).not.toContain('release/user.xml')
     for (const p of paths) {
       expect(p, p).not.toMatch(/^release\/(user|user_c|hud_config|serverlist_recent|chat_config_\d+)\.xml$/)
-      expect(p, p).not.toMatch(/release\.revision\.txt$|\.part$|^addons\//)
+      expect(p, p).not.toMatch(/release\.revision\.txt$|\.part$|^addons\/|^\.yufa-/)
       expect(p, p).not.toMatch(/leak\.bin$/)
     }
     // with excludes emptied, the default-excluded paths do get published

@@ -32,6 +32,7 @@ export function StatusArea() {
             })
           : t('status.cleanupAvailable', { count: patcher.plan?.deleteCount ?? 0 })
       break
+    case 'installing':
     case 'updating':
     case 'repairing':
     case 'verifying':
@@ -47,7 +48,8 @@ export function StatusArea() {
       statusLine = null
   }
 
-  const showBar = (patcher.state === 'updating' || patcher.state === 'repairing') && progress
+  const active = patcher.state === 'installing' || patcher.state === 'updating'
+  const showBar = (active || patcher.state === 'repairing') && progress
   const showSpeed = showBar && progress!.phase === 'downloading' && progress!.bytesPerSec > 0
 
   return (
@@ -62,7 +64,7 @@ export function StatusArea() {
             })}
           </p>
         )}
-        {patcher.state === 'updating' && (
+        {active && (
           <button
             type="button"
             onClick={() => void cancel()}

@@ -33,7 +33,8 @@ const GUARDED_FILES: readonly string[] = [
   'release/serverlist_recent.xml',
 ]
 
-const GUARDED_GLOBS: readonly string[] = ['release/chat_config_*.xml', 'release.revision.txt', '*.part']
+/** `.yufa-*` are the launcher's own files in the game folder (Install Record, write probe). */
+const GUARDED_GLOBS: readonly string[] = ['release/chat_config_*.xml', 'release.revision.txt', '*.part', '.yufa-*']
 
 const GUARDED_DIRS: readonly string[] = ['addons', ...RUNTIME_DIRS]
 

@@ -26,6 +26,8 @@ export const IPC = {
 export type PatcherStateName =
   | 'idle'
   | 'checking'
+  | 'not-installed'
+  | 'installing'
   | 'update-available'
   | 'up-to-date'
   | 'updating'
@@ -55,17 +57,19 @@ export interface ErrorInfo {
 }
 
 export interface PlanSummary {
+  /** Files to fetch: Managed Files plus Seed-once Files to write. */
   fileCount: number
   deleteCount: number
   totalBytes: number
   targetRevision: number
+  /** What release.revision.txt said before the plan (0 when absent). */
   localRevision: number
 }
 
 export interface PatcherStateEvent {
   state: PatcherStateName
   error?: ErrorInfo
-  /** With state 'error' code 'offline': a valid-looking local install exists, Play may be offered. */
+  /** With state 'error' code 'offline': the Install Record says the Build is complete, Play may be offered. */
   offlinePlayable?: boolean
   plan?: PlanSummary
 }

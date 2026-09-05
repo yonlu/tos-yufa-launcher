@@ -1,146 +1,148 @@
 import { describe, expect, it } from 'vitest'
 import {
   computePlan,
-  GRANDFATHER_REVISION as GF,
+  emptyInstallRecord,
+  orderDownloads,
   patchFileName,
-  type LocalPatchFile,
-  type PatchEntry,
+  type InstallRecord,
+  type LocalFileStat,
+  type ManifestFile,
 } from '../src/index'
 
-function entry(revision: number, size = 1000): PatchEntry {
-  return { name: patchFileName(revision), revision, size, sha256: 'a'.repeat(64) }
+function hash(seed: string): string {
+  return seed.charCodeAt(0).toString(16).padStart(2, '0').repeat(32)
 }
 
-function local(revision: number, size = 1000): LocalPatchFile {
-  return { name: patchFileName(revision), size }
+function managed(path: string, size: number, seed = path): ManifestFile {
+  return { path, size, sha256: hash(seed), class: 'managed' }
 }
 
-const A = entry(GF + 1)
-const B = entry(GF + 2, 2000)
-const C = entry(GF + 3, 3000)
+function seedOnce(path: string, size: number): ManifestFile {
+  return { path, size, sha256: hash(path), class: 'seed-once' }
+}
+
+function archive(revision: number, size: number): ManifestFile {
+  return managed(`patch/${patchFileName(revision)}`, size, `p${revision}`)
+}
+
+const EXE = managed('release/Yuka.exe', 100)
+const DLL = managed('release/a.dll', 50)
+const BG = managed('data/bg.ipf', 9000)
+const LAYOUT = seedOnce('release/uilayout.xml', 20)
+const P1 = archive(1116001, 500)
+const P2 = archive(1116002, 300)
+
+const files = [BG, P1, P2, DLL, EXE, LAYOUT].sort((a, b) => (a.path < b.path ? -1 : 1))
+const manifest = { revision: 1116002, files }
+
+function recordOf(entries: ManifestFile[], over: Partial<InstallRecord> = {}): InstallRecord {
+  return {
+    ...emptyInstallRecord(2),
+    files: entries.map((f) => ({ path: f.path, size: f.size, mtimeMs: 1000, sha256: f.sha256 })),
+    ...over,
+  }
+}
+
+function localOf(entries: ManifestFile[], mtimeMs = 1000): Map<string, LocalFileStat> {
+  return new Map(entries.map((f) => [f.path, { size: f.size, mtimeMs }]))
+}
+
+describe('orderDownloads', () => {
+  it('smallest first, patch archives ascending by revision among themselves', () => {
+    const late = archive(1116003, 10) // tiny but newest: must not jump ahead of older archives
+    const order = orderDownloads([BG, P2, late, EXE, P1, DLL]).map((f) => f.path)
+    expect(order).toEqual([P1.path, DLL.path, EXE.path, P2.path, late.path, BG.path])
+  })
+
+  it('ties on size break by path so the order is stable', () => {
+    const a = managed('b.bin', 5)
+    const b = managed('a.bin', 5)
+    expect(orderDownloads([a, b]).map((f) => f.path)).toEqual(['a.bin', 'b.bin'])
+  })
+})
 
 describe('computePlan', () => {
-  it('fresh install: downloads everything ascending, derives local revision as grandfather', () => {
-    const plan = computePlan({
-      manifest: { files: [A, B, C], revision: C.revision },
-      localFiles: [],
-      localRevision: null,
-    })
-    expect(plan.toDownload).toEqual([A, B, C])
+  it('empty folder without a record: downloads every Managed File, seeds every Seed-once File', () => {
+    const plan = computePlan({ manifest, record: null, local: new Map() })
+    expect(plan.toDownload.map((f) => f.path)).toEqual([DLL.path, EXE.path, P1.path, P2.path, BG.path])
+    expect(plan.toSeed).toEqual([LAYOUT])
     expect(plan.toDelete).toEqual([])
-    expect(plan.targetRevision).toBe(C.revision)
-    expect(plan.totalBytes).toBe(6000)
-    expect(plan.localRevision).toBe(GF)
+    expect(plan.targetRevision).toBe(1116002)
+    expect(plan.totalBytes).toBe(100 + 50 + 9000 + 20 + 500 + 300)
   })
 
-  it('incremental: only entries not locally valid are downloaded', () => {
+  it('resume: recorded files whose size and mtime still match are not downloaded again', () => {
+    const done = [EXE, DLL, P1]
+    const plan = computePlan({ manifest, record: recordOf(done), local: localOf([...done, LAYOUT]) })
+    expect(plan.toDownload.map((f) => f.path)).toEqual([P2.path, BG.path])
+    expect(plan.toSeed).toEqual([])
+    expect(plan.totalBytes).toBe(9300)
+  })
+
+  it('a recorded file that is missing, resized or touched locally is downloaded again', () => {
+    const record = recordOf([EXE, DLL, BG])
+    const local = localOf([DLL, BG])
+    local.set(DLL.path, { size: DLL.size, mtimeMs: 2000 })
+    local.set(BG.path, { size: 1, mtimeMs: 1000 })
+    const plan = computePlan({ manifest, record, local })
+    expect(plan.toDownload.map((f) => f.path)).toEqual(expect.arrayContaining([EXE.path, DLL.path, BG.path]))
+  })
+
+  it('a recorded file whose hash differs from the manifest (new Build) is downloaded', () => {
+    const oldExe = { ...EXE, sha256: hash('old') }
+    const plan = computePlan({ manifest, record: recordOf([oldExe, DLL, BG, P1, P2]), local: localOf([EXE, DLL, BG, P1, P2, LAYOUT]) })
+    expect(plan.toDownload).toEqual([EXE])
+  })
+
+  it('a file present locally but absent from the record is not trusted', () => {
+    const plan = computePlan({ manifest, record: emptyInstallRecord(3), local: localOf([EXE]) })
+    expect(plan.toDownload.map((f) => f.path)).toContain(EXE.path)
+  })
+
+  it('hash results are authoritative in both directions', () => {
     const plan = computePlan({
-      manifest: { files: [A, B, C], revision: C.revision },
-      localFiles: [local(A.revision)],
-      localRevision: A.revision,
+      manifest,
+      record: recordOf([EXE, DLL, BG, P1, P2]),
+      local: localOf([EXE, DLL, BG, P1, P2, LAYOUT]),
+      hashed: new Map([
+        [EXE.path, hash('corrupt')], // record trusts it, content says otherwise
+        [DLL.path, DLL.sha256],
+      ]),
     })
-    expect(plan.toDownload).toEqual([B, C])
-    expect(plan.toDelete).toEqual([])
-    expect(plan.totalBytes).toBe(5000)
+    expect(plan.toDownload).toEqual([EXE])
+
+    const noRecord = computePlan({ manifest, record: null, local: localOf([EXE]), hashed: new Map([[EXE.path, EXE.sha256]]) })
+    expect(noRecord.toDownload.map((f) => f.path)).not.toContain(EXE.path)
   })
 
-  it('heals a missing older entry even when the revision file claims it was applied', () => {
+  it('deletes only recorded paths the manifest dropped, sorted by path', () => {
+    const gone1 = managed('patch/1116009_001001.ipf', 10)
+    const gone2 = managed('data/old.ipf', 10)
     const plan = computePlan({
-      manifest: { files: [A, B, C], revision: C.revision },
-      localFiles: [local(C.revision, 3000)],
-      localRevision: C.revision,
-    })
-    expect(plan.toDownload).toEqual([A, B])
-  })
-
-  it('size mismatch forces redownload', () => {
-    const plan = computePlan({
-      manifest: { files: [A], revision: A.revision },
-      localFiles: [local(A.revision, 999)],
-      localRevision: A.revision,
-    })
-    expect(plan.toDownload).toEqual([A])
-  })
-
-  it('deep mode: corrupt names force redownload despite matching size', () => {
-    const plan = computePlan({
-      manifest: { files: [A, B], revision: B.revision },
-      localFiles: [local(A.revision), local(B.revision, 2000)],
-      localRevision: B.revision,
-      corruptNames: new Set([A.name]),
-    })
-    expect(plan.toDownload).toEqual([A])
-  })
-
-  it('rollback: managed local files absent from the manifest are deleted, revision goes down', () => {
-    const D = local(GF + 5)
-    const plan = computePlan({
-      manifest: { files: [A], revision: A.revision },
-      localFiles: [local(A.revision), D],
-      localRevision: GF + 5,
+      manifest,
+      record: recordOf([EXE, DLL, BG, P1, P2, gone1, gone2]),
+      local: localOf([EXE, DLL, BG, P1, P2, LAYOUT, gone1, gone2]),
     })
     expect(plan.toDownload).toEqual([])
-    expect(plan.toDelete).toEqual([D.name])
-    expect(plan.targetRevision).toBe(A.revision)
+    expect(plan.toDelete).toEqual([gone2.path, gone1.path])
   })
 
-  it('deletes are ordered by revision descending', () => {
-    const plan = computePlan({
-      manifest: { files: [], revision: GF },
-      localFiles: [local(GF + 1), local(GF + 3), local(GF + 2)],
-      localRevision: GF + 3,
+  it('Seed-once Files are written when absent and left alone when present, whatever the record says', () => {
+    const present = computePlan({
+      manifest,
+      record: recordOf([], { seeded: [] }),
+      local: new Map([[LAYOUT.path, { size: 999, mtimeMs: 5 }]]),
     })
-    expect(plan.toDelete).toEqual([patchFileName(GF + 3), patchFileName(GF + 2), patchFileName(GF + 1)])
-    expect(plan.targetRevision).toBe(GF)
+    expect(present.toSeed).toEqual([])
+    expect(present.toDownload.map((f) => f.path)).not.toContain(LAYOUT.path)
+
+    const absent = computePlan({ manifest, record: recordOf([], { seeded: [LAYOUT.path] }), local: new Map() })
+    expect(absent.toSeed).toEqual([LAYOUT])
+    expect(absent.toDelete).toEqual([])
   })
 
-  it('never touches grandfathered base-install files', () => {
-    const plan = computePlan({
-      manifest: { files: [A], revision: A.revision },
-      localFiles: [local(11072), local(GF), local(A.revision)],
-      localRevision: A.revision,
-    })
-    expect(plan.toDownload).toEqual([])
-    expect(plan.toDelete).toEqual([])
-  })
-
-  it('derives local revision from the highest size-valid managed file when the revision file is unreadable', () => {
-    const plan = computePlan({
-      manifest: { files: [A, B, C], revision: C.revision },
-      localFiles: [local(A.revision), local(B.revision, 42)],
-      localRevision: null,
-    })
-    expect(plan.localRevision).toBe(A.revision)
-    expect(plan.toDownload).toEqual([B, C])
-  })
-
-  it('a local file not present in the manifest never counts toward the derived revision', () => {
-    const plan = computePlan({
-      manifest: { files: [A], revision: A.revision },
-      localFiles: [local(GF + 9)],
-      localRevision: null,
-    })
-    expect(plan.localRevision).toBe(GF)
-    expect(plan.toDelete).toEqual([patchFileName(GF + 9)])
-    expect(plan.toDownload).toEqual([A])
-  })
-
-  it('passes a non-null local revision through untouched', () => {
-    const plan = computePlan({
-      manifest: { files: [A], revision: A.revision },
-      localFiles: [],
-      localRevision: 123,
-    })
-    expect(plan.localRevision).toBe(123)
-  })
-
-  it('respects a custom grandfather revision', () => {
-    const plan = computePlan({
-      manifest: { files: [], revision: 10 },
-      localFiles: [local(11), local(9)],
-      localRevision: null,
-      grandfatherRevision: 10,
-    })
-    expect(plan.toDelete).toEqual([patchFileName(11)])
+  it('target revision is 0 when the manifest has no patch archives', () => {
+    const plan = computePlan({ manifest: { revision: 0, files: [EXE] }, record: null, local: new Map() })
+    expect(plan.targetRevision).toBe(0)
   })
 })

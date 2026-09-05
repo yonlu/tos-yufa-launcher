@@ -8,6 +8,7 @@
   "titlebar.close": "Close",
   "play.checking": "Checking…",
   "play.update": "Update",
+  "play.install": "Install",
   "play.updating": "Updating… {{percent}}%",
   "play.verifying": "Verifying files…",
   "play.play": "Play",

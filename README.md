@@ -4,7 +4,7 @@ Launcher + sistema de publicação de patches para o servidor Yufa | ToS - Class
 
 ## Pacotes
 
-- `packages/shared` — schemas do manifest (zod), `computePlan()` (núcleo puro do patcher), tipos de IPC.
+- `packages/shared` — schemas do manifest e do Install Record (zod), `computePlan()` (núcleo puro do patcher: manifest + Install Record + scan local → baixar / semear / apagar), tipos de IPC.
 - `packages/launcher` — app Electron (electron-vite + React). UI do jogador: verificar → baixar → jogar.
 - `packages/publish-cli` — CLI do admin (`npm run yufa-publish`): release / patch / rollback / news / verify / launcher.
 - `tools/dev-server.ts` — servidor estático local com suporte a HTTP Range para testes E2E.
@@ -22,4 +22,8 @@ npm run dev-server          # servidor de patches local
 
 ## Contrato de patch (cliente ToS)
 
-O cliente carrega **todos** os `patch\*.ipf` (glob `../patch/*.ipf`); revisões maiores sobrescrevem menores e o `data\`. `release\release.revision.txt` guarda a revisão mais alta aplicada. O launcher só gerencia arquivos `^\d+_001001\.ipf$` com revisão > 234929 (linha de corte da instalação base).
+O cliente carrega **todos** os `patch\*.ipf` (glob `../patch/*.ipf`); revisões maiores sobrescrevem menores e o `data\`. `release\release.revision.txt` guarda a revisão mais alta aplicada; o launcher avança esse arquivo conforme cada patch archive termina e o iguala à revisão do manifest ao final (0 quando o Build não tem patch archives).
+
+## Pasta do jogo (lado do jogador)
+
+O manifest lista cada Managed File do Build; o launcher instala tudo a partir de uma pasta vazia e guarda o que instalou em `.yufa-install.json` (Install Record: build, `completed`, path/size/mtime/sha256 por arquivo, Seed-once já semeados). Só apaga caminhos presentes nesse registro. Uma pasta "válida" tem Install Record ou `release\Yuka.exe`; sem os dois, o estado é `not-installed`. Instalação interrompida retoma no próximo `check`: arquivos concluídos não são baixados de novo, `.part` continuam via Range.

@@ -1,98 +1,97 @@
-import { parsePatchFileName } from './manifest'
+import { comparePaths, patchArchiveRevision, type Manifest, type ManifestFile } from './manifest'
+import type { InstallRecord } from './record'
 
-/**
- * Highest revision that ships with the base client install. The patch-only
- * plan below ignores archives at or below this line. Superseded by the
- * Install Record plan (issue #4); kept only until that lands.
- */
-export const GRANDFATHER_REVISION = 234929
-
-/** A patch archive as the patch-only plan sees it (name + revision + size + hash). */
-export interface PatchEntry {
-  name: string
-  revision: number
+/** What a local stat says about a file that exists in the game folder. */
+export interface LocalFileStat {
   size: number
-  sha256: string
-}
-
-/** A pattern-matched file found in the local patch\ directory. */
-export interface LocalPatchFile {
-  name: string
-  size: number
-}
-
-export interface UpdatePlan {
-  /** Patch entries to fetch, ascending by revision. */
-  toDownload: PatchEntry[]
-  /** Local file names to delete (managed files absent from the manifest — rollback). */
-  toDelete: string[]
-  /** What release.revision.txt must say when the plan is fully applied. */
-  targetRevision: number
-  totalBytes: number
-  /** Effective local revision (from the revision file, or derived from local files). */
-  localRevision: number
+  mtimeMs: number
 }
 
 export interface ComputePlanArgs {
-  /** Patch archives of the Current Manifest, ascending by revision, plus its revision. */
-  manifest: { files: PatchEntry[]; revision: number }
-  /** Pattern-matched local files (any revision; grandfathered ones are ignored here). */
-  localFiles: LocalPatchFile[]
-  /** Parsed release.revision.txt, or null when missing/garbage. */
-  localRevision: number | null
-  /** Deep/repair mode: names whose content hash failed verification. */
-  corruptNames?: ReadonlySet<string>
-  grandfatherRevision?: number
+  manifest: Pick<Manifest, 'revision' | 'files'>
+  /** The folder's Install Record, or null when there is none. */
+  record: InstallRecord | null
+  /** Files that exist locally, keyed by game-relative path. Must cover every recorded and every manifest path. */
+  local: ReadonlyMap<string, LocalFileStat>
+  /**
+   * Actual content hashes of local files, keyed by path, for whatever the
+   * caller chose to hash (Repair hashes every Managed File). Authoritative
+   * for the paths it covers: a hash that matches the manifest trusts the
+   * file even without a record; one that differs forces a download even
+   * with one.
+   */
+  hashed?: ReadonlyMap<string, string>
+}
+
+export interface InstallPlan {
+  /** Managed Files to fetch, in download order. */
+  toDownload: ManifestFile[]
+  /** Seed-once Files absent locally, to fetch and write once, in download order. */
+  toSeed: ManifestFile[]
+  /** Recorded paths the manifest no longer lists; nothing else is ever deleted. */
+  toDelete: string[]
+  /** What release.revision.txt must say when the plan is fully applied. */
+  targetRevision: number
+  /** Bytes of toDownload plus toSeed. */
+  totalBytes: number
 }
 
 /**
- * The pure core of the patcher. The manifest is authoritative for every
- * local file matching PATCH_FILE_RE with revision > grandfatherRevision:
- * missing or invalid → download, present but not listed → delete (rollback).
- * A local file is valid when it exists with the manifest's size and is not
- * reported corrupt — size is trustworthy because files are only ever
- * renamed into place after their streaming hash passed.
+ * Download order: smallest first (fast time-to-first-progress; exes and
+ * dlls land early), with Patch archives ascending by revision among
+ * themselves so the revision file can advance as they land.
  */
-export function computePlan(args: ComputePlanArgs): UpdatePlan {
-  const gf = args.grandfatherRevision ?? GRANDFATHER_REVISION
-  const corrupt = args.corruptNames ?? new Set<string>()
+export function orderDownloads(files: readonly ManifestFile[]): ManifestFile[] {
+  const bySize = [...files].sort((a, b) => a.size - b.size || comparePaths(a.path, b.path))
+  const archives = bySize
+    .filter((f) => patchArchiveRevision(f.path) !== null)
+    .sort((a, b) => patchArchiveRevision(a.path)! - patchArchiveRevision(b.path)!)
+  let next = 0
+  return bySize.map((f) => (patchArchiveRevision(f.path) === null ? f : archives[next++]!))
+}
 
-  const managedLocal = new Map<string, LocalPatchFile>()
-  for (const f of args.localFiles) {
-    const rev = parsePatchFileName(f.name)
-    if (rev !== null && rev > gf) managedLocal.set(f.name, f)
-  }
+/**
+ * The pure core of the patcher. The manifest is authoritative for Managed
+ * Files; the Install Record is the only source of deletions; Seed-once
+ * Files are written when absent and otherwise ignored.
+ *
+ * A recorded Managed File is trusted when its local size and mtime still
+ * match the record and the record's hash matches the manifest. `hashed`
+ * overrides that in both directions.
+ */
+export function computePlan(args: ComputePlanArgs): InstallPlan {
+  const recorded = new Map((args.record?.files ?? []).map((f) => [f.path, f]))
+  const hashed = args.hashed ?? new Map<string, string>()
 
-  const manifestNames = new Set(args.manifest.files.map((f) => f.name))
-
-  const toDelete = [...managedLocal.keys()]
-    .filter((name) => !manifestNames.has(name))
-    .sort((a, b) => parsePatchFileName(b)! - parsePatchFileName(a)!)
-
-  const toDownload = args.manifest.files.filter((entry) => {
-    const local = managedLocal.get(entry.name)
-    if (!local) return true
-    if (local.size !== entry.size) return true
-    if (corrupt.has(entry.name)) return true
-    return false
-  })
-
-  let localRevision = args.localRevision
-  if (localRevision === null) {
-    localRevision = gf
-    for (const entry of args.manifest.files) {
-      const local = managedLocal.get(entry.name)
-      if (local && local.size === entry.size && !corrupt.has(entry.name) && entry.revision > localRevision) {
-        localRevision = entry.revision
-      }
+  const download: ManifestFile[] = []
+  const seed: ManifestFile[] = []
+  for (const entry of args.manifest.files) {
+    const local = args.local.get(entry.path)
+    if (entry.class === 'seed-once') {
+      if (!local) seed.push(entry)
+      continue
     }
+    const actual = hashed.get(entry.path)
+    if (actual !== undefined) {
+      if (actual !== entry.sha256) download.push(entry)
+      continue
+    }
+    const rec = recorded.get(entry.path)
+    const trusted =
+      !!local && !!rec && rec.sha256 === entry.sha256 && rec.size === local.size && rec.mtimeMs === local.mtimeMs
+    if (!trusted) download.push(entry)
   }
 
+  const manifestPaths = new Set(args.manifest.files.map((f) => f.path))
+  const toDelete = [...recorded.keys()].filter((p) => !manifestPaths.has(p)).sort(comparePaths)
+
+  const toDownload = orderDownloads(download)
+  const toSeed = orderDownloads(seed)
   return {
     toDownload,
+    toSeed,
     toDelete,
     targetRevision: args.manifest.revision,
-    totalBytes: toDownload.reduce((sum, f) => sum + f.size, 0),
-    localRevision,
+    totalBytes: [...toDownload, ...toSeed].reduce((s, f) => s + f.size, 0),
   }
 }
