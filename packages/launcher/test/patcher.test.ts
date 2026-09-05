@@ -12,14 +12,23 @@ import {
   type InstallRecord,
   type Manifest,
   type PatcherProgressEvent,
+  type PatcherStateEvent,
+  type RedistRuntime,
 } from '@yufa/shared'
 import { DEFAULT_EXCLUDES, DEFAULT_SEED_ONCE } from '../../publish-cli/src/config'
-import { patch as cliPatch, release as cliRelease, rollback as cliRollback, type Ctx } from '../../publish-cli/src/commands'
+import {
+  patch as cliPatch,
+  redistPush as cliRedistPush,
+  release as cliRelease,
+  rollback as cliRollback,
+  type Ctx,
+} from '../../publish-cli/src/commands'
 import type { PublishConfig } from '../../publish-cli/src/config'
 import { LocalDirStore } from '../../publish-cli/src/store'
 import { createDevServer, type DevServer } from '../../../tools/dev-server'
 import { gamePaths, readLocalRevision } from '../src/main/localState'
 import { Patcher, type PatcherDeps } from '../src/main/patcher'
+import { ensureRedistributables, RedistError, type RedistInstaller, type RedistRunner } from '../src/main/redist'
 
 let storeDir: string
 let staging: string
@@ -704,5 +713,189 @@ describe('Updating an installed Build', () => {
     } finally {
       await slowServer.close()
     }
+  })
+})
+
+describe('Redistributables after a fresh install', () => {
+  const REDIST_FILES = [
+    'vcredist/vc_redist.x86.exe',
+    'directx/DXSETUP.exe',
+    'directx/DSETUP.dll',
+    'directx/dsetup32.dll',
+    'directx/dxupdate.cab',
+    'directx/Jun2010_d3dx9_43_x86.cab',
+  ]
+
+  /** The operator's `redist push`: the trimmed installer set lands in the same store the dev server serves. */
+  async function publishRedist() {
+    const dir = join(staging, 'redist')
+    for (const f of REDIST_FILES) await put(dir, f, randomBytes(700))
+    await cliRedistPush(cliCtx, { dir })
+  }
+
+  /** The flow with a fake probe and runner, wired the way index.ts wires the real ones. */
+  function runtimes(present: Record<RedistRuntime, boolean>, runner?: RedistRunner) {
+    const ran: RedistInstaller[][] = []
+    let probes = 0
+    const ensureRuntimes: PatcherDeps['ensureRuntimes'] = (hooks) =>
+      ensureRedistributables({
+        probe: async () => {
+          probes++
+          return present
+        },
+        runner:
+          runner ??
+          (async (installers) => {
+            ran.push(installers)
+          }),
+        indexUrl: `${server.url}/redist/index.json`,
+        tempDir: join(staging, 'redist-tmp'),
+        engineOptions,
+        ...hooks,
+      })
+    return { ran, probes: () => probes, ensureRuntimes }
+  }
+
+  function redistRequests(): string[] {
+    return server.requests.map((r) => r.path).filter((p) => p.startsWith('/redist/'))
+  }
+
+  it('installs the missing runtime under one elevated run between verifying and ready', async () => {
+    await publishTree()
+    await publishRedist()
+    const rt = runtimes({ vcredist: true, directx: false })
+    const states: PatcherStateEvent[] = []
+    const p = makePatcher({ ensureRuntimes: rt.ensureRuntimes, onState: (e) => states.push(e) })
+    await p.check()
+    const done = await p.install()
+    expect(done.state).toBe('ready')
+    expect(done.redist).toEqual({ status: 'installed', missing: ['directx'] })
+    expect(states.map((s) => s.state)).toEqual([
+      'checking',
+      'not-installed',
+      'installing',
+      'verifying',
+      'installing-runtimes',
+      'installing-runtimes',
+      'ready',
+    ])
+    expect(states.filter((s) => s.state === 'installing-runtimes').map((s) => s.redist?.status)).toEqual([
+      'downloading',
+      'installing',
+    ])
+    expect(rt.ran).toHaveLength(1)
+    expect(rt.ran[0]!.map((i) => i.runtime)).toEqual(['directx'])
+    expect(redistRequests().some((path) => path.includes('/vcredist/'))).toBe(false)
+    expect((await readRecord()).completed).toBe(true)
+  })
+
+  it('runtimes already present: nothing is fetched from redist/ and ready follows verifying directly', async () => {
+    await publishTree()
+    await publishRedist()
+    const rt = runtimes({ vcredist: true, directx: true })
+    const states: string[] = []
+    const p = makePatcher({ ensureRuntimes: rt.ensureRuntimes, onState: (e) => states.push(e.state) })
+    await p.check()
+    const done = await p.install()
+    expect(done.redist).toEqual({ status: 'present', missing: [] })
+    expect(states).toEqual(['checking', 'not-installed', 'installing', 'verifying', 'ready'])
+    expect(redistRequests()).toEqual([])
+    expect(rt.probes()).toBe(1)
+  })
+
+  it('a declined prompt or a failed installer is a warning on ready, not an error', async () => {
+    await publishTree()
+    await publishRedist()
+    const rt = runtimes({ vcredist: false, directx: false }, async () => {
+      throw new RedistError('elevation-declined', 'The operation was canceled by the user')
+    })
+    const p = makePatcher({ ensureRuntimes: rt.ensureRuntimes })
+    await p.check()
+    const done = await p.install()
+    expect(done.state).toBe('ready')
+    expect(done.redist).toMatchObject({ status: 'failed', missing: ['vcredist', 'directx'] })
+    expect(done.redist?.error?.code).toBe('elevation-declined')
+    expect(p.state.state).toBe('ready')
+    expect((await readRecord()).completed).toBe(true)
+  })
+
+  it('an ordinary update of a complete install never probes', async () => {
+    await publishTree()
+    await publishRedist()
+    const rt = runtimes({ vcredist: false, directx: false })
+    await installFresh({ ensureRuntimes: rt.ensureRuntimes })
+    expect(rt.probes()).toBe(1)
+
+    const next = join(staging, patchFileName(REV_B + 1))
+    await writeFile(next, randomBytes(3 * 1024))
+    await cliPatch(cliCtx, { files: [next] })
+    const p = makePatcher({ ensureRuntimes: rt.ensureRuntimes })
+    expect((await p.check()).state).toBe('update-available')
+    const done = await p.update()
+    expect(done.state).toBe('ready')
+    expect(done.redist).toBeUndefined()
+    expect(rt.probes()).toBe(1)
+    expect(rt.ran).toHaveLength(1)
+  })
+
+  it('an interrupted install probes once, when the resumed install completes', async () => {
+    await publishTree()
+    await publishRedist()
+    const rt = runtimes({ vcredist: false, directx: true })
+    let objectRequests = 0
+    let p: Patcher
+    const fetchImpl: typeof fetch = (input, init) => {
+      if (String(input).includes('/objects/') && ++objectRequests > 2) p.cancel()
+      return fetch(input, init)
+    }
+    p = makePatcher({ fetchImpl, downloadConcurrency: () => 1, ensureRuntimes: rt.ensureRuntimes })
+    expect((await p.installOrResume()).state).toBe('idle')
+    expect(rt.probes()).toBe(0)
+
+    const p2 = makePatcher({ ensureRuntimes: rt.ensureRuntimes })
+    const done = await p2.installOrResume()
+    expect(done.state).toBe('ready')
+    expect(done.redist).toEqual({ status: 'installed', missing: ['vcredist'] })
+    expect(rt.probes()).toBe(1)
+    expect(rt.ran[0]!.map((i) => i.runtime)).toEqual(['vcredist'])
+  })
+
+  it('checkRuntimes() from Settings re-runs the flow and returns to the state it found, carrying the outcome', async () => {
+    await publishTree()
+    await publishRedist()
+    const present = { vcredist: true, directx: true }
+    const rt = runtimes(present)
+    await installFresh({ ensureRuntimes: rt.ensureRuntimes })
+
+    const states: PatcherStateEvent[] = []
+    const p = makePatcher({ ensureRuntimes: rt.ensureRuntimes, onState: (e) => states.push(e) })
+    const checked = await p.check()
+    expect(checked.state).toBe('up-to-date')
+    present.directx = false
+    states.length = 0
+    const after = await p.checkRuntimes()
+    expect(after.state).toBe('up-to-date')
+    expect(after.plan).toEqual(checked.plan)
+    expect(after.redist).toEqual({ status: 'installed', missing: ['directx'] })
+    expect(states.map((s) => s.state)).toEqual(['installing-runtimes', 'installing-runtimes', 'up-to-date'])
+    expect(rt.ran.at(-1)!.map((i) => i.runtime)).toEqual(['directx'])
+    expect(p.state).toBe(after)
+  })
+
+  it('checkRuntimes() while a download runs is ignored', async () => {
+    await publishTree()
+    await publishRedist()
+    const rt = runtimes({ vcredist: false, directx: false })
+    let p: Patcher
+    let during: PatcherStateEvent | null = null
+    const fetchImpl: typeof fetch = async (input, init) => {
+      if (String(input).includes('/objects/') && !during) during = await p.checkRuntimes()
+      return fetch(input, init)
+    }
+    p = makePatcher({ fetchImpl, ensureRuntimes: rt.ensureRuntimes })
+    await p.check()
+    expect((await p.install()).state).toBe('ready')
+    expect(during!.state).toBe('installing')
+    expect(rt.probes()).toBe(1) // the one after the install, not the one requested mid-download
   })
 })

@@ -10,5 +10,9 @@ export const LAUNCHER_FEED_URL =
 
 export const FALLBACK_NEWS_URL = MANIFEST_URL.replace(/manifest\.json.*$/, 'news/news.json')
 
+/** The Redistributable index next to the manifest; installer URLs are resolved relative to it. */
+export const REDIST_INDEX_URL =
+  process.env['YUFA_REDIST_INDEX_URL'] ?? MANIFEST_URL.replace(/manifest\.json.*$/, 'redist/index.json')
+
 /** Publisher folder convention: the game goes next to the launcher under Hyped Games on the system drive. */
 export const DEFAULT_INSTALL_DIR = `${process.env['SystemDrive'] ?? 'C:'}\\Hyped Games\\ToS Classic`

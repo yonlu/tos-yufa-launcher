@@ -1,4 +1,5 @@
 import type { NewsItem } from './manifest'
+import type { RedistRuntime } from './redist'
 
 /** Channel names shared by main, preload and renderer. */
 export const IPC = {
@@ -6,6 +7,7 @@ export const IPC = {
   patcherStart: 'patcher:start',
   patcherRepair: 'patcher:repair',
   patcherCancel: 'patcher:cancel',
+  patcherCheckRuntimes: 'patcher:checkRuntimes',
   gameLaunch: 'game:launch',
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
@@ -32,6 +34,7 @@ export type PatcherStateName =
   | 'checking'
   | 'not-installed'
   | 'installing'
+  | 'installing-runtimes'
   | 'update-available'
   | 'up-to-date'
   | 'updating'
@@ -53,6 +56,7 @@ export type ErrorCode =
   | 'download-failed'
   | 'av-suspected'
   | 'elevation-declined'
+  | 'redist-failed'
 
 export interface ErrorInfo {
   code: ErrorCode
@@ -70,9 +74,24 @@ export interface PlanSummary {
   localRevision: number
 }
 
+/**
+ * What the Redistributable flow is doing or last did. `downloading` and
+ * `installing` accompany state 'installing-runtimes'; the rest ride on the
+ * state the launcher returns to and stay until the next check. `failed`
+ * is a warning: Play is still offered.
+ */
+export interface RedistStatus {
+  status: 'downloading' | 'installing' | 'present' | 'installed' | 'failed'
+  /** Runtimes the probe found missing (empty when all were present). */
+  missing: RedistRuntime[]
+  /** With status 'failed': `elevation-declined` when the UAC prompt was refused, else `redist-failed`. */
+  error?: ErrorInfo
+}
+
 export interface PatcherStateEvent {
   state: PatcherStateName
   error?: ErrorInfo
+  redist?: RedistStatus
   /** With state 'error' code 'offline': the Install Record says the Build is complete, Play may be offered. */
   offlinePlayable?: boolean
   /** With state 'update-available': the Install Record is not complete, so this update finishes an interrupted install. */
@@ -141,6 +160,8 @@ export interface YufaApi {
   patcherStart(): Promise<void>
   patcherRepair(): Promise<void>
   patcherCancel(): Promise<void>
+  /** Settings action: probe the Windows runtimes again and install what is missing. */
+  patcherCheckRuntimes(): Promise<void>
   gameLaunch(): Promise<LaunchResult>
   settingsGet(): Promise<Settings>
   settingsSet(partial: Partial<Settings>): Promise<Settings>

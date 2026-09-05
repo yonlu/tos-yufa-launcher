@@ -29,6 +29,7 @@ interface LauncherStore {
   check(): Promise<void>
   startUpdate(): Promise<void>
   repair(): Promise<void>
+  checkRuntimes(): Promise<void>
   cancel(): Promise<void>
   play(): Promise<void>
   saveSettings(p: Partial<Settings>): Promise<void>
@@ -63,7 +64,11 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
       set((s) => ({
         patcher: e,
         progress:
-          e.state === 'installing' || e.state === 'updating' || e.state === 'repairing' || e.state === 'verifying'
+          e.state === 'installing' ||
+          e.state === 'updating' ||
+          e.state === 'repairing' ||
+          e.state === 'verifying' ||
+          e.state === 'installing-runtimes'
             ? s.progress
             : null,
       }))
@@ -94,6 +99,7 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
 
   startUpdate: () => window.yufa.patcherStart(),
   repair: () => window.yufa.patcherRepair(),
+  checkRuntimes: () => window.yufa.patcherCheckRuntimes(),
   cancel: () => window.yufa.patcherCancel(),
 
   async play() {

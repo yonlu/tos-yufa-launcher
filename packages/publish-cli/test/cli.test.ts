@@ -3,8 +3,8 @@ import { mkdtemp, mkdir, readFile, writeFile, truncate, rm, stat, utimes } from 
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { manifestSchema, patchFileName, type Manifest } from '@yufa/shared'
-import { gc, newsPush, patch, publishLauncher, release, rollback, verify, type Ctx } from '../src/commands'
+import { manifestSchema, patchFileName, redistIndexSchema, type Manifest } from '@yufa/shared'
+import { gc, newsPush, patch, publishLauncher, redistPush, release, rollback, verify, type Ctx } from '../src/commands'
 import { DEFAULT_EXCLUDES, DEFAULT_SEED_ONCE, type PublishConfig } from '../src/config'
 import { sha256File } from '../src/hash'
 import { DryRunStore, LocalDirStore } from '../src/store'
@@ -599,5 +599,70 @@ describe('launcher publish', () => {
   it('refuses a dist dir without latest.yml', async () => {
     const dist = await mkdtemp(join(tmpdir(), 'yufa-dist-'))
     await expect(publishLauncher(ctx, dist)).rejects.toThrow(/latest\.yml not found/)
+  })
+})
+
+describe('redist push', () => {
+  /** The trimmed installer set as documented: vcredist/ and directx/ subfolders. */
+  async function makeRedistDir(opts: { withoutCab?: boolean; without?: string; extra?: string } = {}) {
+    const dir = await mkdtemp(join(tmpdir(), 'yufa-redist-'))
+    const files = [
+      'vcredist/vc_redist.x86.exe',
+      'directx/DXSETUP.exe',
+      'directx/DSETUP.dll',
+      'directx/dsetup32.dll',
+      'directx/dxupdate.cab',
+      ...(opts.withoutCab ? [] : ['directx/Jun2010_d3dx9_43_x86.cab']),
+      ...(opts.extra ? [opts.extra] : []),
+    ].filter((f) => f !== opts.without)
+    const written = new Map<string, Buffer>()
+    for (const f of files) written.set(f, (await put(dir, f, randomBytes(512 + written.size))).content)
+    return { dir, written }
+  }
+
+  it('uploads every file of the trimmed set, then writes redist/index.json last with sizes and hashes', async () => {
+    const { dir, written } = await makeRedistDir()
+    await redistPush(ctx, { dir })
+
+    const ops = store.ops
+    expect(ops.at(-1)).toBe('redist/index.json')
+    expect(ops.slice(0, -1).sort()).toEqual([...written.keys()].map((f) => `redist/${f}`).sort())
+
+    const index = redistIndexSchema.parse(JSON.parse((await store.getText('redist/index.json'))!))
+    expect(index.runtimes.vcredist.entry).toBe('vcredist/vc_redist.x86.exe')
+    expect(index.runtimes.directx.entry).toBe('directx/DXSETUP.exe')
+    const listed = [...index.runtimes.vcredist.files, ...index.runtimes.directx.files]
+    expect(listed.map((f) => f.path).sort()).toEqual([...written.keys()].sort())
+    for (const f of listed) {
+      expect(f.size).toBe(written.get(f.path)!.length)
+      expect(f.sha256).toBe(sha(written.get(f.path)!))
+    }
+    expect(index.runtimes.directx.files.map((f) => f.path)).not.toContain('vcredist/vc_redist.x86.exe')
+    expect(logs.at(-1)).toMatch(/redist published/)
+  })
+
+  it('refuses a folder missing a required installer file, before uploading anything', async () => {
+    for (const without of ['vcredist/vc_redist.x86.exe', 'directx/DXSETUP.exe', 'directx/dxupdate.cab']) {
+      const { dir } = await makeRedistDir({ without })
+      await expect(redistPush(ctx, { dir })).rejects.toThrow(without.split('/').pop()!)
+    }
+    const { dir } = await makeRedistDir({ withoutCab: true })
+    await expect(redistPush(ctx, { dir })).rejects.toThrow(/d3dx9_43_x86\.cab/)
+    expect(store.ops).toEqual([])
+  })
+
+  it('ignores files outside the two runtime folders', async () => {
+    const { dir } = await makeRedistDir({ extra: 'README.txt' })
+    await redistPush(ctx, { dir })
+    expect(store.ops).not.toContain('redist/README.txt')
+  })
+
+  it('--dry-run logs every upload and writes nothing', async () => {
+    const { dir } = await makeRedistDir()
+    const dry: string[] = []
+    await redistPush({ cfg, store: new DryRunStore(store, (m) => dry.push(m)), log: () => {} }, { dir })
+    expect(dry.filter((m) => m.includes('would upload'))).toHaveLength(6)
+    expect(dry.at(-1)).toMatch(/would write redist\/index\.json/)
+    expect(store.ops).toEqual([])
   })
 })

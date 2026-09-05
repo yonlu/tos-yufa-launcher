@@ -32,7 +32,7 @@ Escolha o domínio público do patch (ex.: `patch.yufa.com.br`) e substitua `REP
    domínio customizado ao bucket. Egress é gratuito; R2 responde HTTP Range (necessário p/ resume).
    Confirme depois do deploy: `curl -r 0-1023 -sw '%{http_code}' https://patch.<dominio>/patches/<arquivo>` → `206`.
    Os uploads do CLI já mandam `Cache-Control` correto (`immutable` p/ ipfs, `no-cache` p/ manifest/news/latest.yml);
-   se usar cache do Cloudflare, crie uma Cache Rule de bypass para `manifest.json`, `news/*` e `launcher/latest.yml`.
+   se usar cache do Cloudflare, crie uma Cache Rule de bypass para `manifest.json`, `news/*`, `redist/*` e `launcher/latest.yml`.
 2. **Credenciais**: `$env:R2_ACCESS_KEY_ID` / `$env:R2_SECRET_ACCESS_KEY` (nunca no repo).
 3. **Release** (primeiro Build):
    `npx tsx packages/publish-cli/src/index.ts release --dir C:\tos-servers\Classic --label 1.0`
@@ -40,10 +40,14 @@ Escolha o domínio público do patch (ex.: `patch.yufa.com.br`) e substitua `REP
    cada hash contra a pasta local). De tempos em tempos, `gc --keep 3 --dry-run` e então `gc --keep 3` para apagar
    Blobs que nenhum dos 3 Builds mais recentes (nem o atual) referencia. Nunca rode `gc` com um `release`/`patch`
    em andamento: os Blobs subem antes do Manifest que os referencia.
-4. **Notícias**: edite `news/news.json` → `… news push`.
-5. **Launcher**: `npm run dist -w @yufa/launcher` → teste o instalador → `… launcher packages/launcher/release-builds`.
+4. **Runtimes**: extraia o `vc_redist.x86.exe` e, do DirectX End-User Runtimes (June 2010), só `DXSETUP.exe`,
+   `DSETUP.dll`, `dsetup32.dll`, `dxupdate.cab` e `Jun2010_d3dx9_43_x86.cab`, nas subpastas `vcredist\` e `directx\`
+   (lista no README) → `… redist push --dir <pasta>`. O launcher só baixa isso em máquinas onde falta um dos dois.
+   Sem esse push, uma instalação nova em Windows limpo termina com o aviso "runtimes não instalados" (o Jogar continua liberado).
+5. **Notícias**: edite `news/news.json` → `… news push`.
+6. **Launcher**: `npm run dist -w @yufa/launcher` → teste o instalador → `… launcher packages/launcher/release-builds`.
    Publique o `Yufa-Launcher-Setup-1.0.0.exe` no site no lugar do GameUpdater antigo.
-6. **Teste de aceitação final** (única coisa que não dá para validar sem o jogo): crie um ipf de teste
+7. **Teste de aceitação final** (única coisa que não dá para validar sem o jogo): crie um ipf de teste
    com um recurso visível alterado (ferramentas da comunidade, linhagem IPFUnpacker — confirme que o
    ipf gerado funciona neste build do cliente), numere `1140002_001001.ipf`, `… patch <arquivo>`, rode o
    launcher numa CÓPIA do cliente, entre no jogo e confirme o recurso; depois `… rollback 1140001` e

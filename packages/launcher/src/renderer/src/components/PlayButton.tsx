@@ -78,6 +78,8 @@ export function PlayButton() {
       case 'verifying':
       case 'repairing':
         return { label: t('play.verifying'), disabled: true, variant: 'neutral', spinner: true }
+      case 'installing-runtimes':
+        return { label: t('play.installingRuntimes'), disabled: true, variant: 'neutral', spinner: true }
       case 'ready':
       case 'up-to-date':
         return { label: t('play.play'), onClick: () => void play(), disabled: false, variant: 'play' }

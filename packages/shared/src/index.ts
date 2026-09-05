@@ -1,4 +1,5 @@
 export * from './manifest'
 export * from './record'
+export * from './redist'
 export * from './plan'
 export * from './ipc'

@@ -17,6 +17,7 @@ import {
   type PatcherProgressEvent,
   type PatcherStateEvent,
   type PlanSummary,
+  type RedistStatus,
   withInstalledFile,
   withoutFile,
   withSeeded,
@@ -27,6 +28,7 @@ import {
   ensureDiskSpace,
   sha256File,
   type DownloadJob,
+  type DownloadProgress,
   type EngineOptions,
 } from './download'
 import {
@@ -55,7 +57,28 @@ export interface PatcherDeps {
   /** Read at the start of every update so a settings change applies to the next run. */
   downloadConcurrency?: () => number
   manifestTimeoutMs?: number
+  /**
+   * The Redistributable flow (redist.ts): probes the Windows runtimes and
+   * installs the missing ones. Run once an install completes and on demand
+   * from Settings; absent in tests that do not care.
+   */
+  ensureRuntimes?: (hooks: RuntimeHooks) => Promise<RedistStatus>
 }
+
+export interface RuntimeHooks {
+  onStatus: (s: RedistStatus) => void
+  onProgress: (p: DownloadProgress) => void
+}
+
+/** States during which another run must not start. */
+const BUSY_STATES: ReadonlySet<PatcherStateEvent['state']> = new Set([
+  'checking',
+  'installing',
+  'installing-runtimes',
+  'updating',
+  'verifying',
+  'repairing',
+])
 
 class PatcherError extends Error {
   constructor(readonly info: ErrorInfo) {
@@ -81,6 +104,9 @@ interface Situation {
  * State machine: idle → checking → not-installed | up-to-date | update-available
  *                → installing | updating (progress) → verifying → ready | error(code)
  * repair(): checking → repairing(hash progress) → same update path.
+ * A run that completes the install (the record was not complete before)
+ * passes through installing-runtimes on its way to ready; the outcome
+ * rides on ready as `redist`, a failure being a warning there.
  *
  * The Current Manifest is authoritative; the Install Record is the local
  * memory of what was installed and is rewritten after every completed file,
@@ -94,6 +120,7 @@ export class Patcher {
   private situation: Situation | null = null
   private abort: AbortController | null = null
   private desyncRetried = false
+  private runtimesRunning = false
   private lastState: PatcherStateEvent = { state: 'idle' }
 
   constructor(private readonly deps: PatcherDeps) {
@@ -307,8 +334,13 @@ export class Patcher {
         return this.fail({ code: 'download-failed', message: `verification failed: ${problems.join('; ')}` })
       }
       await writeInstallRecord(this.paths, { ...record, completed: true })
+      // First completion of this folder (fresh or resumed install): the client
+      // needs its Windows runtimes; an ordinary update of a complete install does
+      // not ask again. (Resuming an interrupted update probes too — cheap, and
+      // the probe finds the DLLs present.)
+      const redist = situation.record?.completed === true ? undefined : await this.runRuntimes()
       this.situation = null
-      return this.setState({ state: 'ready', plan: summary })
+      return this.setState({ state: 'ready', plan: summary, redist })
     } catch (err) {
       return this.handleUpdateError(err, state)
     } finally {
@@ -359,6 +391,34 @@ export class Patcher {
 
   cancel(): void {
     this.abort?.abort()
+  }
+
+  /**
+   * Settings' "Check runtimes": re-runs the Redistributable flow and comes
+   * back to the state it found, carrying the outcome. Ignored while a
+   * check or download is running.
+   */
+  async checkRuntimes(): Promise<PatcherStateEvent> {
+    const before = this.lastState
+    // installing-runtimes is only published once the flow has something to
+    // report, so a second click during the probe needs its own guard
+    if (BUSY_STATES.has(before.state) || this.runtimesRunning || !this.deps.ensureRuntimes) return before
+    this.runtimesRunning = true
+    try {
+      const redist = await this.runRuntimes()
+      return this.setState({ ...before, redist })
+    } finally {
+      this.runtimesRunning = false
+    }
+  }
+
+  /** Runs the flow, reporting its download and elevation phases as installing-runtimes; undefined without a flow. */
+  private async runRuntimes(): Promise<RedistStatus | undefined> {
+    if (!this.deps.ensureRuntimes) return undefined
+    return this.deps.ensureRuntimes({
+      onStatus: (redist) => this.setState({ state: 'installing-runtimes', redist }),
+      onProgress: (p) => this.deps.onProgress?.({ phase: 'downloading', ...p }),
+    })
   }
 
   private async fetchManifest(): Promise<Manifest> {

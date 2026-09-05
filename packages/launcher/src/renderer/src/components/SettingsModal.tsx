@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useLauncher } from '../store'
 
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { settings, saveSettings, selectGamePath, repair } = useLauncher()
+  const { settings, saveSettings, selectGamePath, repair, checkRuntimes } = useLauncher()
   const { t } = useTranslation()
   const [invalidPath, setInvalidPath] = useState(false)
 
@@ -114,6 +114,20 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
               {t('settings.repair')}
             </button>
             <p className="mt-2 text-xs text-tos-brown-muted">{t('settings.repairHint')}</p>
+          </div>
+
+          <div className="rounded-tos-panel border border-tos-border bg-tos-tan/60 p-3">
+            <button
+              type="button"
+              onClick={() => {
+                void checkRuntimes()
+                onClose()
+              }}
+              className={`font-display font-bold ${surfaceButton}`}
+            >
+              {t('settings.checkRuntimes')}
+            </button>
+            <p className="mt-2 text-xs text-tos-brown-muted">{t('settings.checkRuntimesHint')}</p>
           </div>
         </div>
 

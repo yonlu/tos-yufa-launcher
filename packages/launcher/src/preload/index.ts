@@ -20,6 +20,7 @@ const api: YufaApi = {
   patcherStart: () => ipcRenderer.invoke(IPC.patcherStart),
   patcherRepair: () => ipcRenderer.invoke(IPC.patcherRepair),
   patcherCancel: () => ipcRenderer.invoke(IPC.patcherCancel),
+  patcherCheckRuntimes: () => ipcRenderer.invoke(IPC.patcherCheckRuntimes),
   gameLaunch: () => ipcRenderer.invoke(IPC.gameLaunch),
   settingsGet: () => ipcRenderer.invoke(IPC.settingsGet),
   settingsSet: (partial) => ipcRenderer.invoke(IPC.settingsSet, partial),

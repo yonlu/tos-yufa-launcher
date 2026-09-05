@@ -3,6 +3,7 @@ import type {
   InstallPathProblem,
   PatcherProgressEvent,
   PatcherStateEvent,
+  RedistStatus,
   Settings,
   UpdaterStatusEvent,
   YufaApi,
@@ -11,8 +12,8 @@ import type {
 /**
  * Browser/dev harness: installed only when the preload bridge is absent.
  * Drive states via the URL, e.g. ?mock=updating, ?mock=error&code=offline,
- * ?mock=not-installed[&partial][&nospace], ?mock=resume — lets every UI state be exercised
- * without Electron or a patch server.
+ * ?mock=not-installed[&partial][&nospace], ?mock=resume, ?mock=runtimes, &redist=failed|declined
+ * (warning on a ready launcher) — lets every UI state be exercised without Electron or a patch server.
  */
 export function installMockIfNeeded(): void {
   if (window.yufa) return
@@ -43,6 +44,48 @@ export function installMockIfNeeded(): void {
     stateListeners.forEach((cb) => cb(e))
   }
 
+  /** The warning a ready launcher shows after a failed runtime install (?redist=failed|declined). */
+  function redistOutcome(): RedistStatus | undefined {
+    const mode = params.get('redist')
+    if (mode === 'failed') {
+      return { status: 'failed', missing: ['directx'], error: { code: 'redist-failed', message: 'installer exit codes: directx=1' } }
+    }
+    if (mode === 'declined') {
+      return { status: 'failed', missing: ['vcredist', 'directx'], error: { code: 'elevation-declined' } }
+    }
+    return undefined
+  }
+
+  /** Redistributable flow after an install: download two installers, then the elevated run, then ready. */
+  function simulateRuntimes(after: PatcherStateEvent): void {
+    const missing: RedistStatus['missing'] = ['vcredist', 'directx']
+    emitState({ state: 'installing-runtimes', redist: { status: 'downloading', missing } })
+    const total = 18_000_000
+    let bytes = 0
+    const timer = setInterval(() => {
+      bytes = Math.min(total, bytes + total / 12)
+      progressListeners.forEach((cb) =>
+        cb({
+          phase: 'downloading',
+          file: bytes < total / 2 ? 'vc_redist.x86.exe' : 'DXSETUP.exe',
+          fileIndex: bytes < total / 2 ? 1 : 2,
+          fileCount: 2,
+          fileBytes: bytes % (total / 2),
+          fileTotal: total / 2,
+          overallBytes: bytes,
+          overallTotal: total,
+          bytesPerSec: 6_500_000,
+          etaSec: Math.round((total - bytes) / 6_500_000),
+        }),
+      )
+      if (bytes >= total) {
+        clearInterval(timer)
+        emitState({ state: 'installing-runtimes', redist: { status: 'installing', missing } })
+        setTimeout(() => emitState({ ...after, redist: redistOutcome() ?? { status: 'installed', missing } }), 2500)
+      }
+    }, 250)
+  }
+
   function simulateDownload(state: 'installing' | 'updating', total: number): void {
     emitState({ state, plan: state === 'installing' ? fullPlan : plan })
     let bytes = 0
@@ -65,7 +108,8 @@ export function installMockIfNeeded(): void {
       if (bytes >= total) {
         clearInterval(timer)
         emitState({ state: 'verifying' })
-        setTimeout(() => emitState({ state: 'ready', plan }), 600)
+        const ready: PatcherStateEvent = { state: 'ready', plan }
+        setTimeout(() => (state === 'installing' ? simulateRuntimes(ready) : emitState(ready)), 600)
       }
     }, 250)
   }
@@ -92,7 +136,9 @@ export function installMockIfNeeded(): void {
   const checkResult = (): PatcherStateEvent => {
     switch (scenario) {
       case 'up-to-date':
-        return { state: 'up-to-date', plan: { ...plan, fileCount: 0, totalBytes: 0 } }
+        return { state: 'up-to-date', plan: { ...plan, fileCount: 0, totalBytes: 0 }, redist: redistOutcome() }
+      case 'runtimes':
+        return { state: 'installing-runtimes', redist: { status: 'installing', missing: ['vcredist', 'directx'] } }
       case 'not-installed':
         return { state: 'not-installed', plan: fullPlan }
       case 'resume':
@@ -122,6 +168,7 @@ export function installMockIfNeeded(): void {
       setTimeout(() => simulateDownload('updating', plan.totalBytes), 1200)
     },
     patcherCancel: async () => emitState({ state: 'idle' }),
+    patcherCheckRuntimes: async () => simulateRuntimes(checkResult()),
     gameLaunch: async () => {
       console.log('[mock] launch game')
       return { ok: true }

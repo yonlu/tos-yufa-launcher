@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander'
 import { loadConfig } from './config'
-import { gc, newsPush, patch, publishLauncher, release, rollback, verify, type Ctx } from './commands'
+import { gc, newsPush, patch, publishLauncher, redistPush, release, rollback, verify, type Ctx } from './commands'
 import { DryRunStore, LocalDirStore, R2Store, type PublishStore } from './store'
 
 const program = new Command()
@@ -72,6 +72,18 @@ program
   .requiredOption('--keep <n>', 'how many of the newest Builds keep their Blobs')
   .action(async (o: { keep: string }) => {
     await gc(buildCtx(), { keep: Number(o.keep) })
+  })
+
+const redist = program.command('redist').description('manage the Windows runtime installers (redist/)')
+redist
+  .command('push')
+  .description(
+    'upload the trimmed runtime installers and write redist/index.json last; ' +
+      '<folder> holds vcredist/vc_redist.x86.exe and directx/{DXSETUP.exe,DSETUP.dll,dsetup32.dll,dxupdate.cab,Jun2010_d3dx9_43_x86.cab}',
+  )
+  .requiredOption('--dir <folder>', 'folder with the vcredist/ and directx/ subfolders')
+  .action(async (o: { dir: string }) => {
+    await redistPush(buildCtx(), { dir: o.dir })
   })
 
 program

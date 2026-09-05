@@ -26,7 +26,7 @@ Glossary for the launcher and its publishing pipeline. Terms only; no implementa
 - **Installing** — first-time download of a whole build into a chosen folder. Resumable across launcher restarts.
 - **Checking / Update available / Up to date / Updating / Verifying / Ready** — as before: compare local install to the current manifest, fetch what differs.
 - **Repair** — deep verification: every Managed File re-hashed, differences healed.
-- **Redistributable** — a Windows runtime the client needs (VC++ 2015+ x86, DirectX June 2010). Installed only when detected missing; not part of the game manifest.
+- **Redistributable** — a Windows runtime the client needs (VC++ 2015+ x86, DirectX June 2010). Installed only when detected missing, right after the install that completes the Install Record and on demand from Settings; not part of the game manifest. Its trimmed installers live under `redist/`, described by a **Redist index** the CLI writes last. A failed or declined runtime install is a warning, never a block on Play.
 
 ## Names
 

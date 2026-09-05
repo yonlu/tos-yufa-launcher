@@ -6,6 +6,7 @@ import { ErrorBanner } from './components/ErrorBanner'
 import { InstallPanel } from './components/InstallPanel'
 import { NewsPanel } from './components/NewsPanel'
 import { PlayButton } from './components/PlayButton'
+import { RuntimeWarning } from './components/RuntimeWarning'
 import { SettingsModal } from './components/SettingsModal'
 import { StatusArea } from './components/StatusArea'
 import { TitleBar } from './components/TitleBar'
@@ -48,6 +49,7 @@ export default function App() {
               </h1>
             </div>
             <InstallPanel />
+            <RuntimeWarning />
             <ErrorBanner />
           </section>
           <div className="animate-fade-up flex opacity-0" style={{ animationDelay: '0.3s' }}>

@@ -1,13 +1,22 @@
 import { dirname, join, resolve } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron'
 import log from 'electron-log/main'
-import { IPC, type LaunchResult, type PatcherProgressEvent, type PatcherStateEvent, type Settings } from '@yufa/shared'
-import { DEFAULT_INSTALL_DIR, FALLBACK_NEWS_URL, LAUNCHER_FEED_URL, MANIFEST_URL } from './constants'
+import {
+  IPC,
+  type ErrorInfo,
+  type LaunchResult,
+  type PatcherProgressEvent,
+  type PatcherStateEvent,
+  type RedistStatus,
+  type Settings,
+} from '@yufa/shared'
+import { DEFAULT_INSTALL_DIR, FALLBACK_NEWS_URL, LAUNCHER_FEED_URL, MANIFEST_URL, REDIST_INDEX_URL } from './constants'
 import { isGameRunning, launchGame } from './game'
 import { validateInstallPath } from './installPath'
 import { cleanupStaleParts, gamePaths, isValidGameDir, probeGameDirWritable } from './localState'
 import { fetchNews } from './news'
 import { Patcher } from './patcher'
+import { ensureRedistributables, probeWindowsRuntimes, runInstallersElevated } from './redist'
 import { initSelfUpdate, type SelfUpdater } from './selfUpdate'
 import { SettingsStore } from './settings'
 import { createMainWindow } from './window'
@@ -52,8 +61,17 @@ async function bootstrap(): Promise<void> {
       fetchImpl: electronFetch,
       downloadConcurrency: () => settings.get().downloadConcurrency,
       isGameRunning,
+      ensureRuntimes: (hooks) =>
+        ensureRedistributables({
+          probe: probeWindowsRuntimes,
+          runner: runInstallersElevated,
+          indexUrl: REDIST_INDEX_URL,
+          tempDir: join(app.getPath('temp'), 'yufa-launcher', 'redist'),
+          fetchImpl: electronFetch,
+          ...hooks,
+        }),
       onState: (e: PatcherStateEvent) => {
-        log.info(`patcher: ${e.state}${e.error ? ` (${e.error.code}: ${e.error.message ?? ''})` : ''}`)
+        log.info(`patcher: ${e.state}${describeError(e.error)}${e.redist ? describeRedist(e.redist) : ''}`)
         send(IPC.patcherState, e)
         // e2e hook: YUFA_AUTO=update installs/downloads on its own; =play also launches
         const auto = process.env['YUFA_AUTO']
@@ -98,6 +116,9 @@ async function bootstrap(): Promise<void> {
     void patcher.repair()
   })
   ipcMain.handle(IPC.patcherCancel, () => patcher.cancel())
+  ipcMain.handle(IPC.patcherCheckRuntimes, () => {
+    void patcher.checkRuntimes()
+  })
 
   async function doLaunch(): Promise<LaunchResult> {
     const s = settings.get()
@@ -233,6 +254,14 @@ async function bootstrap(): Promise<void> {
     }
   })
   app.on('window-all-closed', () => app.quit())
+}
+
+function describeError(error: ErrorInfo | undefined): string {
+  return error ? ` (${error.code}: ${error.message ?? ''})` : ''
+}
+
+function describeRedist(r: RedistStatus): string {
+  return ` [runtimes ${r.status}${r.missing.length ? ` ${r.missing.join('+')}` : ''}${describeError(r.error)}]`
 }
 
 async function detectGamePath(): Promise<string> {

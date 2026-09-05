@@ -35,6 +35,13 @@ export function StatusArea() {
             })
           : t('status.cleanupAvailable', { count: patcher.plan?.deleteCount ?? 0 })
       break
+    case 'installing-runtimes':
+      // downloading: the engine's per-file line; installing: tell the player the UAC prompt is coming
+      statusLine =
+        patcher.redist?.status === 'downloading' && progress
+          ? t('status.runtimes.downloading', { file: progress.file, index: progress.fileIndex, count: progress.fileCount })
+          : t('status.runtimes.installing')
+      break
     case 'installing':
     case 'updating':
     case 'repairing':
@@ -52,7 +59,8 @@ export function StatusArea() {
   }
 
   const active = patcher.state === 'installing' || patcher.state === 'updating'
-  const showBar = (active || patcher.state === 'repairing') && progress
+  const runtimesDownloading = patcher.state === 'installing-runtimes' && patcher.redist?.status === 'downloading'
+  const showBar = (active || patcher.state === 'repairing' || runtimesDownloading) && progress
   const showSpeed = showBar && progress!.phase === 'downloading' && progress!.bytesPerSec > 0
 
   return (

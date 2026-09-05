@@ -3,13 +3,22 @@ import { basename, join } from 'node:path'
 import {
   comparePaths,
   deriveRevision,
+  DIRECTX_PAYLOAD_CAB_RE,
   manifestSchema,
   MANIFEST_SCHEMA_VERSION,
   newsFeedSchema,
   parsePatchFileName,
   PATCH_DIR,
+  REDIST_INDEX_FILE,
+  REDIST_INDEX_SCHEMA_VERSION,
+  REDIST_LAYOUT,
+  REDIST_RUNTIMES,
+  redistIndexSchema,
   type Manifest,
   type ManifestFile,
+  type RedistFile,
+  type RedistIndex,
+  type RedistRuntime,
 } from '@yufa/shared'
 import type { PublishConfig } from './config'
 import { HashCache, sha256File, type HashFile } from './hash'
@@ -441,4 +450,74 @@ export async function publishLauncher(ctx: Ctx, distDir: string, minLauncher?: s
     })
     log(`minLauncherVersion is now ${minLauncher} — older launchers will force-update.`)
   }
+}
+
+export interface RedistPushArgs {
+  /** Folder holding `vcredist/` and `directx/` with the trimmed installer sets (see README). */
+  dir: string
+}
+
+/**
+ * Uploads the trimmed Redistributable installers and writes
+ * `redist/index.json` last, so a launcher never reads an index whose files
+ * are not all there yet. The folder must hold, per runtime, the files the
+ * launcher runs (REDIST_LAYOUT) plus the d3dx9_43 x86 cab; anything
+ * outside the two runtime folders is ignored. Files are keyed by path,
+ * not content (ADR 0002), so the whole set is re-uploaded on every push.
+ */
+export async function redistPush(ctx: Ctx, args: RedistPushArgs): Promise<RedistIndex> {
+  const log = logger(ctx)
+  const walked = await walkGameDir(args.dir, { excludes: [] })
+  const byRuntime = new Map<RedistRuntime, RedistFile[]>()
+  const sources = new Map<string, string>()
+  for (const rt of REDIST_RUNTIMES) {
+    const files: RedistFile[] = []
+    for (const w of walked) {
+      if (!w.relPath.toLowerCase().startsWith(`${rt}/`)) continue
+      files.push({ path: w.relPath, size: w.size, sha256: await hasher(ctx)(w.absPath) })
+      sources.set(w.relPath, w.absPath)
+    }
+    byRuntime.set(rt, files)
+  }
+
+  const have = new Set(walked.map((w) => w.relPath.toLowerCase()))
+  for (const rt of REDIST_RUNTIMES) {
+    for (const required of REDIST_LAYOUT[rt].required) {
+      if (!have.has(required.toLowerCase())) throw new Error(`${args.dir} is missing ${required}`)
+    }
+  }
+  if (!walked.some((w) => DIRECTX_PAYLOAD_CAB_RE.test(w.relPath))) {
+    throw new Error(`${args.dir} is missing the DirectX payload cab (directx/Jun2010_d3dx9_43_x86.cab)`)
+  }
+  /** Entry paths as laid out on disk, so the launcher runs the file by its stored key even if the case differs. */
+  const entryOf = (rt: RedistRuntime): string =>
+    walked.find((w) => w.relPath.toLowerCase() === REDIST_LAYOUT[rt].entry.toLowerCase())!.relPath
+
+  const index: RedistIndex = {
+    schemaVersion: REDIST_INDEX_SCHEMA_VERSION,
+    generatedAt: new Date().toISOString(),
+    runtimes: {
+      vcredist: { entry: entryOf('vcredist'), files: byRuntime.get('vcredist')! },
+      directx: { entry: entryOf('directx'), files: byRuntime.get('directx')! },
+    },
+  }
+  redistIndexSchema.parse(index)
+
+  let bytes = 0
+  for (const rt of REDIST_RUNTIMES) {
+    for (const f of index.runtimes[rt].files) {
+      log(`uploading ${f.path} (${f.size} bytes)…`)
+      await ctx.store.putFile(ctx.cfg.redistPrefix + f.path, sources.get(f.path)!, {
+        contentType: CONTENT_TYPES.binary,
+        cacheControl: CACHE.none,
+      })
+      bytes += f.size
+    }
+  }
+  await ctx.store.putText(ctx.cfg.redistPrefix + REDIST_INDEX_FILE, JSON.stringify(index, null, 2), {
+    contentType: CONTENT_TYPES.json,
+    cacheControl: CACHE.none,
+  })
+  log(`redist published: ${sources.size} file(s), ${Math.ceil(bytes / 1e6)} MB (index last).`)
+  return index
 }

@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { LaunchResult } from '@yufa/shared'
 import type { GamePaths } from './localState'
+import { psQuote } from './powershell'
 
 const execFileAsync = promisify(execFile)
 
@@ -12,10 +13,6 @@ export async function isGameRunning(): Promise<boolean> {
   } catch {
     return false
   }
-}
-
-function psQuote(s: string): string {
-  return `'${s.replace(/'/g, "''")}'`
 }
 
 /**
