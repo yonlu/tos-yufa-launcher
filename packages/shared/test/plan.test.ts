@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   computePlan,
   emptyInstallRecord,
+  filesToHash,
+  HASH_ON_CHECK_MAX_BYTES,
   orderDownloads,
   patchFileName,
   type InstallRecord,
@@ -127,7 +129,7 @@ describe('computePlan', () => {
     expect(plan.toDelete).toEqual([gone2.path, gone1.path])
   })
 
-  it('Seed-once Files are written when absent and left alone when present, whatever the record says', () => {
+  it('Seed-once Files are written when absent and not yet seeded; present ones are left alone whatever the record says', () => {
     const present = computePlan({
       manifest,
       record: recordOf([], { seeded: [] }),
@@ -136,13 +138,68 @@ describe('computePlan', () => {
     expect(present.toSeed).toEqual([])
     expect(present.toDownload.map((f) => f.path)).not.toContain(LAYOUT.path)
 
-    const absent = computePlan({ manifest, record: recordOf([], { seeded: [LAYOUT.path] }), local: new Map() })
+    const absent = computePlan({ manifest, record: recordOf([], { seeded: [] }), local: new Map() })
     expect(absent.toSeed).toEqual([LAYOUT])
     expect(absent.toDelete).toEqual([])
+  })
+
+  it('a seeded Seed-once File is never re-downloaded, verified or deleted, even when absent or hashed as different', () => {
+    const seeded = recordOf([], { seeded: [LAYOUT.path] })
+    const gone = computePlan({ manifest, record: seeded, local: new Map() })
+    expect(gone.toSeed).toEqual([])
+    expect(gone.toDelete).toEqual([])
+
+    const changed = computePlan({
+      manifest,
+      record: seeded,
+      local: new Map([[LAYOUT.path, { size: 999, mtimeMs: 5 }]]),
+      hashed: new Map([[LAYOUT.path, hash('edited by the game')]]),
+    })
+    expect(changed.toSeed).toEqual([])
+    expect(changed.toDownload.map((f) => f.path)).not.toContain(LAYOUT.path)
+    expect(changed.toDelete).toEqual([])
   })
 
   it('target revision is 0 when the manifest has no patch archives', () => {
     const plan = computePlan({ manifest: { revision: 0, files: [EXE] }, record: null, local: new Map() })
     expect(plan.targetRevision).toBe(0)
+  })
+})
+
+describe('filesToHash', () => {
+  const big = managed('data/huge.ipf', HASH_ON_CHECK_MAX_BYTES + 1)
+  const edge = managed('data/edge.ipf', HASH_ON_CHECK_MAX_BYTES)
+  const wide = { revision: 1116002, files: [...files, big, edge] }
+  const all = [EXE, DLL, BG, P1, P2, big, edge]
+
+  it('check: every Managed File at or below the limit that is present with the manifest size', () => {
+    const paths = filesToHash({ manifest: wide, record: recordOf(all), local: localOf([...all, LAYOUT]), mode: 'check' })
+    expect(paths.map((f) => f.path).sort()).toEqual([EXE, DLL, BG, P1, P2, edge].map((f) => f.path).sort())
+  })
+
+  it('check: a file above the limit is hashed only when the record does not know it', () => {
+    const record = recordOf([EXE, DLL, BG, P1, P2, edge]) // big renamed into place, crash before the record write
+    const paths = filesToHash({ manifest: wide, record, local: localOf([...all, LAYOUT]), mode: 'check' })
+    expect(paths.map((f) => f.path)).toContain(big.path)
+
+    const noRecord = filesToHash({ manifest: wide, record: null, local: localOf(all), mode: 'check' })
+    expect(noRecord.map((f) => f.path)).toContain(big.path)
+  })
+
+  it('repair: every Managed File present with the manifest size, whatever its size or record', () => {
+    const paths = filesToHash({ manifest: wide, record: recordOf(all), local: localOf([...all, LAYOUT]), mode: 'repair' })
+    expect(paths.map((f) => f.path).sort()).toEqual(all.map((f) => f.path).sort())
+  })
+
+  it('never hashes Seed-once Files, absent files, or files whose size already disagrees with the manifest', () => {
+    const local = localOf([EXE, DLL, LAYOUT, big])
+    local.set(DLL.path, { size: DLL.size + 1, mtimeMs: 1000 })
+    const paths = filesToHash({ manifest: wide, record: null, local, mode: 'repair' })
+    expect(paths.map((f) => f.path).sort()).toEqual([EXE.path, big.path].sort())
+  })
+
+  it('returns files in manifest order so hashing progress is predictable', () => {
+    const paths = filesToHash({ manifest: wide, record: null, local: localOf(all), mode: 'repair' })
+    expect(paths.map((f) => f.path)).toEqual(wide.files.filter((f) => f.class === 'managed').map((f) => f.path))
   })
 })

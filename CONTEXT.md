@@ -13,7 +13,7 @@ Glossary for the launcher and its publishing pipeline. Terms only; no implementa
 ## Files in the game folder
 
 - **Managed File** — a file the launcher owns: installed, verified against the manifest, replaced when the manifest changes, removed when dropped from the manifest.
-- **Seed-once File** — a file the launcher writes only when absent and never verifies, overwrites or deletes afterwards. Used for files the game itself may rewrite (UI layout, user hotkeys).
+- **Seed-once File** — a file the launcher writes once, when absent and not yet recorded as seeded, and never verifies, overwrites, re-seeds or deletes afterwards. Used for files the game itself may rewrite (UI layout, user hotkeys).
 - **Player-owned File** — a file the launcher never publishes and never touches: game settings written at exit (`user.xml`, chat configs, recent server), logs, screenshots, replays, guild images, addons, and anything the launcher did not install. Contains personal data; excluded from publishing by rule.
 - **Install Record** — the launcher's local memory of which files it installed for which build. The launcher only ever deletes paths present in its own install record.
 - **Patch archive** — a numbered `.ipf` in `patch\` (`<revision>_001001.ipf`). The game loads all of them; higher revision wins over lower and over base data. The conventional vehicle for content changes, because it is small. Still an ordinary Managed File to the launcher.

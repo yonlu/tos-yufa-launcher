@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  HASH_ON_CHECK_MAX_BYTES,
   INSTALL_RECORD_FILE,
   installRecordSchema,
   patchFileName,
@@ -142,6 +143,31 @@ function requestedPaths(requests: DevServer['requests'], manifest: Manifest): st
   return requests
     .filter((r) => r.path.startsWith('/objects/'))
     .map((r) => byHash.get(r.path.slice('/objects/'.length)) ?? r.path)
+}
+
+/** Every file under the game folder with its size and mtime: what a check must leave alone. */
+async function snapshot(): Promise<Map<string, { size: number; mtimeMs: number }>> {
+  const out = new Map<string, { size: number; mtimeMs: number }>()
+  const walk = async (dir: string, rel: string) => {
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      const child = join(dir, entry.name)
+      const childRel = rel ? `${rel}/${entry.name}` : entry.name
+      if (entry.isDirectory()) await walk(child, childRel)
+      else {
+        const st = await fs.stat(child)
+        out.set(childRel, { size: st.size, mtimeMs: st.mtimeMs })
+      }
+    }
+  }
+  await walk(gameDir, '')
+  return out
+}
+
+/** Overwrites a file with `content` keeping its mtime: the corruption a stat cannot see. */
+async function corruptInPlace(path: string, content: Buffer) {
+  const st = await fs.stat(path)
+  await writeFile(path, content)
+  await fs.utimes(path, st.atimeMs / 1000, st.mtimeMs / 1000)
 }
 
 async function installFresh(over: Partial<PatcherDeps> = {}) {
@@ -359,13 +385,40 @@ describe('Updating an installed Build', () => {
     expect((await readRecord()).build).toBe(2)
   })
 
-  it('server-side rollback deletes only recorded files and lowers the revision', async () => {
+  it('a new release that changes one file and adds one patch archive downloads exactly those two', async () => {
+    await publishTree()
+    await installFresh()
+
+    const dll = await put(treeDir, 'release/a.dll', randomBytes(2 * 1024))
+    const archiveC = `patch/${patchFileName(REV_B + 1)}`
+    const archive = await put(treeDir, archiveC, randomBytes(5 * 1024))
+    const manifest = await cliRelease(cliCtx, { dir: treeDir })
+    expect(manifest.build).toBe(2)
+    server.requests.length = 0
+
+    const p = makePatcher()
+    const checked = await p.check()
+    expect(checked.state).toBe('update-available')
+    expect(checked.plan).toMatchObject({ fileCount: 2, deleteCount: 0, totalBytes: dll.length + archive.length })
+    expect((await p.update()).state).toBe('ready')
+    expect(requestedPaths(server.requests, manifest).sort()).toEqual(['release/a.dll', archiveC].sort())
+    expect((await readFile(local('release/a.dll'))).equals(dll)).toBe(true)
+    expect((await readFile(local(archiveC))).equals(archive)).toBe(true)
+    expect(await readLocalRevision(gamePaths(gameDir))).toBe(REV_B + 1)
+    expect((await readRecord()).build).toBe(2)
+  })
+
+  it('server-side rollback deletes only recorded files, lowers the revision and leaves Player-owned files alone', async () => {
     await publishTree()
     const next = join(staging, patchFileName(REV_B + 1))
     await writeFile(next, randomBytes(3 * 1024))
     await cliPatch(cliCtx, { files: [next] })
     await installFresh()
+    // Player-owned: same directories as Managed Files, never recorded
     await put(gameDir, 'release/user.xml', '<user login="player"/>')
+    await put(gameDir, 'release/screenshot/shot.png', 'png')
+    await put(gameDir, 'data/my_addon.ipf', 'addon')
+    await put(gameDir, 'patch/notes.txt', 'mine')
 
     await cliRollback(cliCtx, 1)
     const p = makePatcher()
@@ -375,28 +428,101 @@ describe('Updating an installed Build', () => {
     expect((await p.update()).state).toBe('ready')
     expect(existsSync(local(`patch/${patchFileName(REV_B + 1)}`))).toBe(false)
     expect(await readFile(local('release/user.xml'), 'utf8')).toBe('<user login="player"/>')
+    expect(await readFile(local('release/screenshot/shot.png'), 'utf8')).toBe('png')
+    expect(await readFile(local('data/my_addon.ipf'), 'utf8')).toBe('addon')
+    expect(await readFile(local('patch/notes.txt'), 'utf8')).toBe('mine')
     expect(await readLocalRevision(gamePaths(gameDir))).toBe(REV_B)
-    expect((await readRecord()).files.some((f) => f.path.endsWith(patchFileName(REV_B + 1)))).toBe(false)
+    const record = await readRecord()
+    expect(record.build).toBe(1)
+    expect(record.files.some((f) => f.path.endsWith(patchFileName(REV_B + 1)))).toBe(false)
   })
 
-  it('repair detects silent corruption that a normal check cannot see', async () => {
+  it('a seeded Seed-once File is never re-downloaded, verified or deleted, whatever changes locally or in the manifest', async () => {
+    await publishTree()
+    await installFresh()
+    await put(gameDir, LAYOUT, '<layout mine="1"/>')
+
+    // the manifest's copy changes in a new Build
+    await put(treeDir, LAYOUT, '<layout published="2"/>')
+    const manifest = await cliRelease(cliCtx, { dir: treeDir })
+    expect(manifest.build).toBe(2)
+    server.requests.length = 0
+    const checked = await makePatcher().check()
+    expect(checked.state).toBe('up-to-date')
+    expect(requestedPaths(server.requests, manifest)).toEqual([])
+    expect(await readFile(local(LAYOUT), 'utf8')).toBe('<layout mine="1"/>')
+
+    // the game (or the player) removes it: still not re-seeded, by check or by Repair
+    await fs.rm(local(LAYOUT))
+    expect((await makePatcher().check()).state).toBe('up-to-date')
+    expect((await makePatcher().repair()).state).toBe('up-to-date')
+    expect(existsSync(local(LAYOUT))).toBe(false)
+    expect(requestedPaths(server.requests, manifest)).toEqual([])
+    expect((await readRecord()).seeded).toEqual([LAYOUT])
+  })
+
+  it('a small file corrupted in place (same size, same mtime) is caught by a normal check and healed', async () => {
     const { published } = await publishTree()
     await installFresh()
+
+    const evil = Buffer.from(published.get('release/a.dll')!)
+    evil[0]! ^= 0xff
+    await corruptInPlace(local('release/a.dll'), evil)
+
+    const events: PatcherProgressEvent[] = []
+    const p = makePatcher({ onProgress: (e) => events.push(e) })
+    const checked = await p.check()
+    expect(checked.state).toBe('update-available')
+    expect(checked.plan).toMatchObject({ fileCount: 1, deleteCount: 0 })
+    expect(events.some((e) => e.phase === 'hashing')).toBe(true)
+    expect((await p.update()).state).toBe('ready')
+    expect((await readFile(local('release/a.dll'))).equals(published.get('release/a.dll')!)).toBe(true)
+  })
+
+  it('a large file corrupted in place passes a normal check; Repair detects and heals it, leaving other files alone', async () => {
+    const { published } = await publishTree({ sizes: { 'data/bg.ipf': HASH_ON_CHECK_MAX_BYTES + 1 } })
+    await installFresh()
+    await put(gameDir, 'release/user.xml', '<user login="player"/>')
+    await put(gameDir, LAYOUT, '<layout mine="1"/>')
 
     const target = local('data/bg.ipf')
     const evil = Buffer.from(published.get('data/bg.ipf')!)
     evil[0]! ^= 0xff
-    const st = await fs.stat(target)
-    await writeFile(target, evil) // same size, different content, same mtime
-    await fs.utimes(target, st.atimeMs / 1000, st.mtimeMs / 1000)
+    await corruptInPlace(target, evil)
 
     expect((await makePatcher().check()).state).toBe('up-to-date')
+    expect((await readFile(target)).equals(evil)).toBe(true)
 
     const events: PatcherProgressEvent[] = []
-    const p = makePatcher({ onProgress: (e) => events.push(e) })
+    const states: string[] = []
+    const p = makePatcher({ onProgress: (e) => events.push(e), onState: (e) => states.push(e.state) })
     expect((await p.repair()).state).toBe('ready')
+    expect(states.slice(0, 2)).toEqual(['checking', 'repairing'])
     expect((await readFile(target)).equals(published.get('data/bg.ipf')!)).toBe(true)
-    expect(events.some((e) => e.phase === 'hashing')).toBe(true)
+    const hashing = events.filter((e) => e.phase === 'hashing')
+    expect(hashing.some((e) => e.file === 'data/bg.ipf')).toBe(true)
+    expect(hashing.every((e) => e.overallTotal >= HASH_ON_CHECK_MAX_BYTES + 1)).toBe(true)
+    expect(await readFile(local('release/user.xml'), 'utf8')).toBe('<user login="player"/>')
+    expect(await readFile(local(LAYOUT), 'utf8')).toBe('<layout mine="1"/>')
+  })
+
+  it('a check on an up-to-date install writes nothing except a drifted release.revision.txt', async () => {
+    await publishTree()
+    await installFresh()
+    const record = await readRecord()
+    await writeFile(local('release/release.revision.txt'), '1')
+    const before = await snapshot()
+
+    const states: string[] = []
+    expect((await makePatcher({ onState: (e) => states.push(e.state) }).check()).state).toBe('up-to-date')
+    expect(states).toEqual(['checking', 'up-to-date'])
+    expect(await readLocalRevision(gamePaths(gameDir))).toBe(REV_B)
+    expect(await readRecord()).toEqual(record)
+
+    const after = await snapshot()
+    before.delete('release/release.revision.txt')
+    after.delete('release/release.revision.txt')
+    expect(after).toEqual(before)
   })
 
   it('a failed file leaves the revision at the last complete archive, then recovers', async () => {

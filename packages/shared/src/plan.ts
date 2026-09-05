@@ -23,6 +23,40 @@ export interface ComputePlanArgs {
   hashed?: ReadonlyMap<string, string>
 }
 
+/**
+ * Managed Files at or below this size are re-hashed on every check (cheap:
+ * exes, dlls, scripts, xml — where tampering and antivirus damage land).
+ * Larger ones are trusted from the Install Record and re-hashed only by
+ * Repair.
+ */
+export const HASH_ON_CHECK_MAX_BYTES = 16 * 1024 * 1024
+
+export interface FilesToHashArgs {
+  manifest: Pick<Manifest, 'files'>
+  record: InstallRecord | null
+  local: ReadonlyMap<string, LocalFileStat>
+  /** `check`: the every-start verification; `repair`: deep verification of every Managed File. */
+  mode: 'check' | 'repair'
+}
+
+/**
+ * The Managed Files whose content must be hashed before `computePlan` can
+ * judge them, in manifest order. Only files present with the manifest's
+ * size qualify: any other file is downloaded regardless, so hashing it
+ * would be wasted work. On a check that is every file at or below
+ * `HASH_ON_CHECK_MAX_BYTES`, plus files of any size the record does not
+ * know (a crash between a file's rename and the record write leaves such a
+ * file; hashing it is far cheaper than fetching it again). Repair hashes
+ * them all. Seed-once Files are never hashed.
+ */
+export function filesToHash(args: FilesToHashArgs): ManifestFile[] {
+  const recorded = new Set((args.record?.files ?? []).map((f) => f.path))
+  return args.manifest.files.filter((f) => {
+    if (f.class !== 'managed' || args.local.get(f.path)?.size !== f.size) return false
+    return args.mode === 'repair' || f.size <= HASH_ON_CHECK_MAX_BYTES || !recorded.has(f.path)
+  })
+}
+
 export interface InstallPlan {
   /** Managed Files to fetch, in download order. */
   toDownload: ManifestFile[]
@@ -52,15 +86,18 @@ export function orderDownloads(files: readonly ManifestFile[]): ManifestFile[] {
 
 /**
  * The pure core of the patcher. The manifest is authoritative for Managed
- * Files; the Install Record is the only source of deletions; Seed-once
- * Files are written when absent and otherwise ignored.
+ * Files; the Install Record is the only source of deletions; a Seed-once
+ * File is written once — when absent and never seeded before — and from
+ * then on neither verified, overwritten nor deleted, whatever the game or
+ * the manifest do to it.
  *
  * A recorded Managed File is trusted when its local size and mtime still
  * match the record and the record's hash matches the manifest. `hashed`
- * overrides that in both directions.
+ * overrides that in both directions (see `filesToHash` for what to hash).
  */
 export function computePlan(args: ComputePlanArgs): InstallPlan {
   const recorded = new Map((args.record?.files ?? []).map((f) => [f.path, f]))
+  const seeded = new Set(args.record?.seeded ?? [])
   const hashed = args.hashed ?? new Map<string, string>()
 
   const download: ManifestFile[] = []
@@ -68,7 +105,7 @@ export function computePlan(args: ComputePlanArgs): InstallPlan {
   for (const entry of args.manifest.files) {
     const local = args.local.get(entry.path)
     if (entry.class === 'seed-once') {
-      if (!local) seed.push(entry)
+      if (!local && !seeded.has(entry.path)) seed.push(entry)
       continue
     }
     const actual = hashed.get(entry.path)

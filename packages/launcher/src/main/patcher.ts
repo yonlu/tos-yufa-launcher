@@ -4,6 +4,7 @@ import semver from 'semver'
 import {
   computePlan,
   emptyInstallRecord,
+  filesToHash,
   manifestSchema,
   orderDownloads,
   patchArchiveRevision,
@@ -62,6 +63,12 @@ class PatcherError extends Error {
   }
 }
 
+/** Thrown out of a hashing loop when cancel() fires; the run ends idle. */
+class Cancelled extends Error {}
+
+/** How deep a check verifies content: see `filesToHash` in @yufa/shared. */
+type CheckMode = 'check' | 'repair'
+
 /** Everything a check learned: what is current, what is installed, what remains. */
 interface Situation {
   manifest: Manifest
@@ -79,7 +86,9 @@ interface Situation {
  *
  * The Current Manifest is authoritative; the Install Record is the local
  * memory of what was installed and is rewritten after every completed file,
- * so an interrupted install or update resumes from the next check.
+ * so an interrupted install or update resumes from the next check. A check
+ * trusts a recorded Managed File whose stat still matches, but re-hashes
+ * every small one anyway; Repair re-hashes them all (`filesToHash`).
  * release.revision.txt names the highest Patch archive with no gap below it.
  */
 export class Patcher {
@@ -103,64 +112,85 @@ export class Patcher {
 
   async check(): Promise<PatcherStateEvent> {
     this.desyncRetried = false
-    return this.checkInternal()
+    return this.checkInternal('check')
   }
 
-  private async checkInternal(): Promise<PatcherStateEvent> {
+  /** Deep verification: re-hash every Managed File present locally, then heal. */
+  async repair(): Promise<PatcherStateEvent> {
+    this.desyncRetried = false
+    const after = await this.checkInternal('repair')
+    return after.state === 'update-available' ? this.update() : after
+  }
+
+  private async checkInternal(mode: CheckMode): Promise<PatcherStateEvent> {
     this.setState({ state: 'checking' })
     let situation: Situation
     try {
-      situation = await this.assess(await this.fetchManifest())
+      situation = await this.assess(await this.fetchManifest(), mode)
     } catch (err) {
+      if (err instanceof Cancelled) return this.setState({ state: 'idle' })
       return this.fail(err instanceof PatcherError ? err.info : { code: 'offline', message: (err as Error).message })
     }
     return this.settle(situation)
   }
 
-  private async assess(manifest: Manifest, hashed?: ReadonlyMap<string, string>): Promise<Situation> {
+  private async assess(manifest: Manifest, mode: CheckMode): Promise<Situation> {
     const [record, localRevision] = await Promise.all([readInstallRecord(this.paths), readLocalRevision(this.paths)])
     const local = await scanLocalFiles(
       this.paths,
       new Set([...manifest.files.map((f) => f.path), ...(record?.files.map((f) => f.path) ?? [])]),
     )
-    const plan = computePlan({
-      manifest,
-      record,
-      local,
-      hashed: hashed ?? (record ? await this.hashUnrecorded(manifest, record, local) : undefined),
-    })
+    if (mode === 'repair') this.setState({ state: 'repairing' })
+    const hashed = await this.hashFiles(filesToHash({ manifest, record, local, mode }))
+    const plan = computePlan({ manifest, record, local, hashed })
     return { manifest, record, plan, localRevision, notInstalled: !record && !(await hasClientExe(this.paths)) }
   }
 
-  /**
-   * A crash between a file's rename and the record write leaves a complete
-   * file the record does not know. Hashing such files (at most a handful:
-   * one per download slot) is far cheaper than fetching them again.
-   */
-  private async hashUnrecorded(
-    manifest: Manifest,
-    record: InstallRecord,
-    local: ReadonlyMap<string, { size: number }>,
-  ): Promise<Map<string, string>> {
-    const recorded = new Set(record.files.map((f) => f.path))
+  /** Content hashes of the given files, reported as the `hashing` phase; cancel() ends it. */
+  private async hashFiles(files: readonly ManifestFile[]): Promise<Map<string, string>> {
     const hashed = new Map<string, string>()
-    for (const f of manifest.files) {
-      if (f.class !== 'managed' || recorded.has(f.path) || local.get(f.path)?.size !== f.size) continue
-      hashed.set(f.path, await sha256File(absoluteGamePath(this.paths, f.path)))
+    if (!files.length) return hashed
+    const overallTotal = files.reduce((s, f) => s + f.size, 0)
+    let overallBytes = 0
+    this.abort = new AbortController()
+    try {
+      for (const [i, f] of files.entries()) {
+        if (this.abort.signal.aborted) throw new Cancelled()
+        this.deps.onProgress?.({
+          phase: 'hashing',
+          file: f.path,
+          fileIndex: i + 1,
+          fileCount: files.length,
+          fileBytes: 0,
+          fileTotal: f.size,
+          overallBytes,
+          overallTotal,
+          bytesPerSec: 0,
+          etaSec: null,
+        })
+        hashed.set(f.path, await sha256File(absoluteGamePath(this.paths, f.path)))
+        overallBytes += f.size
+      }
+    } finally {
+      this.abort = null
     }
     return hashed
   }
 
-  /** Publishes what a check found, healing the two files a complete install may have drifted on. */
+  /**
+   * Publishes what a check found. An up-to-date install is left alone,
+   * except for the two files that may have drifted: release.revision.txt
+   * and the record's build/completed flags.
+   */
   private async settle(situation: Situation): Promise<PatcherStateEvent> {
     this.situation = situation
-    const { plan, localRevision, notInstalled } = situation
+    const { manifest, record, plan, localRevision, notInstalled } = situation
     const summary = this.summary(plan, localRevision)
     if (notInstalled) return this.setState({ state: 'not-installed', plan: summary })
     if (!plan.toDownload.length && !plan.toSeed.length && !plan.toDelete.length) {
       if (localRevision !== plan.targetRevision) await writeLocalRevision(this.paths, plan.targetRevision)
-      if (situation.record && !situation.record.completed) {
-        await writeInstallRecord(this.paths, { ...situation.record, completed: true })
+      if (record && (!record.completed || record.build !== manifest.build)) {
+        await writeInstallRecord(this.paths, { ...record, build: manifest.build, completed: true })
       }
       return this.setState({ state: 'up-to-date', plan: summary })
     }
@@ -298,52 +328,6 @@ export class Patcher {
     }
   }
 
-  /** Deep verification: re-hash every Managed File present locally, then heal. */
-  async repair(): Promise<PatcherStateEvent> {
-    this.desyncRetried = false
-    this.setState({ state: 'checking' })
-    let manifest: Manifest
-    try {
-      manifest = await this.fetchManifest()
-    } catch (err) {
-      return this.fail(err instanceof PatcherError ? err.info : { code: 'offline', message: (err as Error).message })
-    }
-
-    const managed = manifest.files.filter((f) => f.class === 'managed')
-    const local = await scanLocalFiles(this.paths, managed.map((f) => f.path))
-    const candidates = managed.filter((f) => local.get(f.path)?.size === f.size)
-    const overallTotal = candidates.reduce((s, f) => s + f.size, 0)
-    let overallBytes = 0
-    const hashed = new Map<string, string>()
-
-    this.abort = new AbortController()
-    this.setState({ state: 'repairing' })
-    try {
-      for (const [i, f] of candidates.entries()) {
-        if (this.abort.signal.aborted) return this.setState({ state: 'idle' })
-        this.deps.onProgress?.({
-          phase: 'hashing',
-          file: f.path,
-          fileIndex: i + 1,
-          fileCount: candidates.length,
-          fileBytes: 0,
-          fileTotal: f.size,
-          overallBytes,
-          overallTotal,
-          bytesPerSec: 0,
-          etaSec: null,
-        })
-        hashed.set(f.path, await sha256File(absoluteGamePath(this.paths, f.path)))
-        overallBytes += f.size
-      }
-    } finally {
-      this.abort = null
-    }
-
-    const after = await this.settle(await this.assess(manifest, hashed))
-    return after.state === 'update-available' ? this.update() : after
-  }
-
   cancel(): void {
     this.abort?.abort()
   }
@@ -409,7 +393,7 @@ export class Patcher {
           // publish race: manifest listed a Blob the CDN doesn't have yet — re-check once
           if (!this.desyncRetried) {
             this.desyncRetried = true
-            const after = await this.checkInternal()
+            const after = await this.checkInternal('check')
             if (after.state === 'update-available') return this.apply(state)
             return after
           }

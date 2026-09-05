@@ -27,3 +27,5 @@ O cliente carrega **todos** os `patch\*.ipf` (glob `../patch/*.ipf`); revisões 
 ## Pasta do jogo (lado do jogador)
 
 O manifest lista cada Managed File do Build; o launcher instala tudo a partir de uma pasta vazia e guarda o que instalou em `.yufa-install.json` (Install Record: build, `completed`, path/size/mtime/sha256 por arquivo, Seed-once já semeados). Só apaga caminhos presentes nesse registro. Uma pasta "válida" tem Install Record ou `release\Yuka.exe`; sem os dois, o estado é `not-installed`. Instalação interrompida retoma no próximo `check`: arquivos concluídos não são baixados de novo, `.part` continuam via Range.
+
+Confiança no `check`: um Managed File registrado é aceito quando size e mtime batem com o registro e o hash do registro bate com o manifest; arquivos de até 16 MB são re-hasheados em todo `check` mesmo assim; maiores só no Repair, que re-hasheia todos e baixa os corrompidos (fase `hashing` no progresso). Seed-once já semeado nunca mais é baixado, verificado ou apagado. Jogo offline só é oferecido com Install Record `completed`.
