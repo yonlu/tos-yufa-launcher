@@ -6,7 +6,7 @@ Launcher + sistema de publicação de patches para o servidor Yufa | ToS - Class
 
 - `packages/shared` — schemas do manifest e do Install Record (zod), `computePlan()` (núcleo puro do patcher: manifest + Install Record + scan local → baixar / semear / apagar), tipos de IPC.
 - `packages/launcher` — app Electron (electron-vite + React). UI do jogador: verificar → baixar → jogar.
-- `packages/publish-cli` — CLI do admin (`npm run yufa-publish`): release / patch / rollback / news / verify / launcher.
+- `packages/publish-cli` — CLI do admin (`npm run yufa-publish`): release / patch / rollback / news / verify (`--mirror <pasta>` compara hashes com a pasta local) / gc (`--keep N` apaga Blobs que nenhum dos N Builds mais recentes nem o atual referencia; nunca apaga Manifests) / launcher.
 - `tools/dev-server.ts` — servidor estático local com suporte a HTTP Range para testes E2E.
 
 ## Comandos

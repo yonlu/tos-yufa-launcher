@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander'
 import { loadConfig } from './config'
-import { newsPush, patch, publishLauncher, release, rollback, verify, type Ctx } from './commands'
+import { gc, newsPush, patch, publishLauncher, release, rollback, verify, type Ctx } from './commands'
 import { DryRunStore, LocalDirStore, R2Store, type PublishStore } from './store'
 
 const program = new Command()
@@ -60,9 +60,18 @@ news
 program
   .command('verify')
   .description('check that every Blob the Current Manifest references is stored with the right size')
-  .action(async () => {
-    const result = await verify(buildCtx())
+  .option('--mirror <dir>', 'also compare the Current Manifest against this local game folder, hash by hash')
+  .action(async (o: { mirror?: string }) => {
+    const result = await verify(buildCtx(), { mirror: o.mirror })
     if (!result.ok) process.exitCode = 1
+  })
+
+program
+  .command('gc')
+  .description('delete Blobs that none of the N newest stored Builds (nor the current one) reference')
+  .requiredOption('--keep <n>', 'how many of the newest Builds keep their Blobs')
+  .action(async (o: { keep: string }) => {
+    await gc(buildCtx(), { keep: Number.parseInt(o.keep, 10) })
   })
 
 program

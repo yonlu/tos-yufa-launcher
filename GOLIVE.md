@@ -34,9 +34,11 @@ Escolha o domínio público do patch (ex.: `patch.yufa.com.br`) e substitua `REP
    Os uploads do CLI já mandam `Cache-Control` correto (`immutable` p/ ipfs, `no-cache` p/ manifest/news/latest.yml);
    se usar cache do Cloudflare, crie uma Cache Rule de bypass para `manifest.json`, `news/*` e `launcher/latest.yml`.
 2. **Credenciais**: `$env:R2_ACCESS_KEY_ID` / `$env:R2_SECRET_ACCESS_KEY` (nunca no repo).
-3. **Seed** (uma vez):
-   `npx tsx packages/publish-cli/src/index.ts seed --patch-dir C:\tos-servers\Classic\patch --include 1116001_001001.ipf … 1140001_001001.ipf`
-   (use `--dry-run` antes; depois `verify --mirror C:\tos-servers\Classic\patch`).
+3. **Release** (primeiro Build):
+   `npx tsx packages/publish-cli/src/index.ts release --dir C:\tos-servers\Classic --label 1.0`
+   (use `--dry-run` antes; depois `verify --mirror C:\tos-servers\Classic`, que confere cada Blob no bucket e
+   cada hash contra a pasta local). De tempos em tempos, `gc --keep 3 --dry-run` e então `gc --keep 3` para apagar
+   Blobs que nenhum dos 3 Builds mais recentes (nem o atual) referencia.
 4. **Notícias**: edite `news/news.json` → `… news push`.
 5. **Launcher**: `npm run dist -w @yufa/launcher` → teste o instalador → `… launcher packages/launcher/release-builds`.
    Publique o `Yufa-Launcher-Setup-1.0.0.exe` no site no lugar do GameUpdater antigo.

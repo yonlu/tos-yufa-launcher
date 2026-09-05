@@ -1,6 +1,7 @@
 import { createReadStream, promises as fs } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
@@ -28,12 +29,15 @@ export interface PublishStore {
   head(key: string): Promise<{ size: number } | null>
   /** Every object whose key starts with `prefix`. */
   list(prefix: string): Promise<StoredObject[]>
+  /** Removes one object; a missing key is not an error. */
+  delete(key: string): Promise<void>
   describe(): string
 }
 
-/** Filesystem-backed store for --local-out mode and tests. Records put order in `ops`. */
+/** Filesystem-backed store for --local-out mode and tests. Records put order in `ops` and deletes in `deleted`. */
 export class LocalDirStore implements PublishStore {
   readonly ops: string[] = []
+  readonly deleted: string[] = []
 
   constructor(private readonly root: string) {}
 
@@ -95,6 +99,15 @@ export class LocalDirStore implements PublishStore {
     }
     await walk(this.root)
     return out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+  }
+
+  async delete(key: string): Promise<void> {
+    this.deleted.push(key)
+    try {
+      await fs.unlink(this.pathFor(key))
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    }
   }
 
   describe(): string {
@@ -189,6 +202,10 @@ export class R2Store implements PublishStore {
     return out
   }
 
+  async delete(key: string): Promise<void> {
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }))
+  }
+
   describe(): string {
     return `R2 bucket ${this.bucket}`
   }
@@ -219,6 +236,10 @@ export class DryRunStore implements PublishStore {
 
   async putText(key: string, text: string, opts?: PutOptions): Promise<void> {
     this.log(`[dry-run] would write ${key} (${text.length} bytes, ${opts?.cacheControl ?? 'no cache-control'})`)
+  }
+
+  async delete(key: string): Promise<void> {
+    this.log(`[dry-run] would delete ${key}`)
   }
 
   describe(): string {

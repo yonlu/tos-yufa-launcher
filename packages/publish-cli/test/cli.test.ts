@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { manifestSchema, patchFileName, type Manifest } from '@yufa/shared'
-import { newsPush, patch, publishLauncher, release, rollback, verify, type Ctx } from '../src/commands'
+import { gc, newsPush, patch, publishLauncher, release, rollback, verify, type Ctx } from '../src/commands'
 import { DEFAULT_EXCLUDES, DEFAULT_SEED_ONCE, type PublishConfig } from '../src/config'
 import { sha256File } from '../src/hash'
 import { DryRunStore, LocalDirStore } from '../src/store'
@@ -408,6 +408,121 @@ describe('verify', () => {
       `data/bg.ipf: blob ${sha(t.bg.content)} has 10 bytes, manifest says 256`,
       `release/Yuka.exe: blob ${sha(t.exe.content)} missing from store`,
     ])
+  })
+
+  it('--mirror passes when the folder that was released is unchanged', async () => {
+    const t = await makeGameTree()
+    await release(ctx, { dir: t.game })
+    expect(await verify(ctx, { mirror: t.game })).toEqual({ ok: true, problems: [] })
+  })
+
+  it('--mirror reports files whose hash differs, are missing locally, or are not in the Manifest', async () => {
+    const t = await makeGameTree()
+    await release(ctx, { dir: t.game })
+    const changed = await put(t.game, 'data/bg.ipf', randomBytes(256))
+    await rm(t.exe.path)
+    await put(t.game, 'data/extra.ipf')
+    await put(t.game, 'release/screenshot/new.png') // hard-guarded: never a problem
+
+    const result = await verify(ctx, { mirror: t.game })
+
+    expect(result.ok).toBe(false)
+    expect(result.problems).toEqual([
+      `data/bg.ipf: mirror has ${sha(changed.content)}, manifest says ${sha(t.bg.content)}`,
+      'data/extra.ipf: in mirror but not in manifest',
+      'release/Yuka.exe: missing from mirror',
+    ])
+  })
+
+  it('--mirror still reports store problems alongside mirror problems', async () => {
+    const t = await makeGameTree()
+    await release(ctx, { dir: t.game })
+    await rm(join(out, 'objects', sha(t.exe.content)))
+
+    const result = await verify(ctx, { mirror: t.game })
+
+    expect(result.problems).toEqual([`release/Yuka.exe: blob ${sha(t.exe.content)} missing from store`])
+  })
+})
+
+describe('gc', () => {
+  /** Three Builds; each one replaces `release/Yuka.exe`, so builds 1 and 2 each own one orphan-able Blob. */
+  async function threeBuilds() {
+    const t = await makeGameTree()
+    await release(ctx, { dir: t.game }) // build 1
+    const exe2 = await put(t.game, 'release/Yuka.exe', randomBytes(300))
+    await release(ctx, { dir: t.game }) // build 2
+    const exe3 = await put(t.game, 'release/Yuka.exe', randomBytes(301))
+    await release(ctx, { dir: t.game }) // build 3
+    return { t, exe1: sha(t.exe.content), exe2: sha(exe2.content), exe3: sha(exe3.content) }
+  }
+
+  it('--keep 2 deletes exactly the Blobs only older Builds reference and every stored Manifest survives', async () => {
+    const b = await threeBuilds()
+    await put(out, `objects/${'f'.repeat(64)}`) // junk nobody references
+    const before = (await store.list('objects/')).map((o) => o.key)
+    expect(before).toHaveLength(7)
+
+    const result = await gc(ctx, { keep: 2 })
+
+    expect(result.kept).toEqual([3, 2])
+    expect(result.deleted.sort()).toEqual([`objects/${b.exe1}`, `objects/${'f'.repeat(64)}`].sort())
+    const after = (await store.list('objects/')).map((o) => o.key)
+    expect(after).toEqual(before.filter((k) => !result.deleted.includes(k)))
+    expect(after).toContain(`objects/${b.exe2}`)
+    expect(after).toContain(`objects/${b.exe3}`)
+    expect((await store.list('manifests/')).map((o) => o.key)).toEqual([
+      'manifests/1.json',
+      'manifests/2.json',
+      'manifests/3.json',
+    ])
+    expect(await store.head('manifest.json')).not.toBeNull()
+    expect(await verify(ctx)).toEqual({ ok: true, problems: [] })
+    expect(store.deleted.every((k) => k.startsWith('objects/'))).toBe(true)
+  })
+
+  it('always keeps the Current Manifest build, even when it is older than the N newest', async () => {
+    const b = await threeBuilds()
+    await rollback(ctx, 1)
+
+    const result = await gc(ctx, { keep: 1 })
+
+    expect(result.kept).toEqual([3, 1])
+    expect(result.deleted).toEqual([`objects/${b.exe2}`])
+    expect(await verify(ctx)).toEqual({ ok: true, problems: [] })
+    expect(await store.head(`objects/${b.exe3}`)).not.toBeNull()
+  })
+
+  it('--dry-run logs every deletion and performs none', async () => {
+    const b = await threeBuilds()
+    const dryCtx: Ctx = { ...ctx, store: new DryRunStore(store, (m) => logs.push(m)) }
+
+    const result = await gc(dryCtx, { keep: 1 })
+
+    expect(result.deleted.sort()).toEqual([`objects/${b.exe1}`, `objects/${b.exe2}`].sort())
+    expect(logs.filter((l) => l.startsWith('[dry-run] would delete objects/'))).toHaveLength(2)
+    expect(await store.list('objects/')).toHaveLength(6)
+  })
+
+  it('refuses a non-positive keep count and a store without a Current Manifest', async () => {
+    await expect(gc(ctx, { keep: 0 })).rejects.toThrow(/positive integer/)
+    await expect(gc(ctx, { keep: 1 })).rejects.toThrow(/no manifest published/)
+    expect(store.deleted).toEqual([])
+  })
+})
+
+describe('LocalDirStore.delete', () => {
+  it('removes the object, is idempotent, and leaves siblings alone', async () => {
+    await store.putText('objects/aaa', 'a')
+    await store.putText('objects/bbb', 'b')
+
+    await store.delete('objects/aaa')
+    await store.delete('objects/aaa')
+
+    expect(await store.head('objects/aaa')).toBeNull()
+    expect(await store.getText('objects/bbb')).toBe('b')
+    expect(store.ops).toEqual(['objects/aaa', 'objects/bbb'])
+    expect(store.deleted).toEqual(['objects/aaa', 'objects/aaa'])
   })
 })
 

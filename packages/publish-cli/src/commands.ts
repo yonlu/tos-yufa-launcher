@@ -241,8 +241,18 @@ export interface VerifyResult {
   problems: string[]
 }
 
-/** Every Blob the Current Manifest references exists in the store with the right size. */
-export async function verify(ctx: Ctx): Promise<VerifyResult> {
+export interface VerifyArgs {
+  /** A local game folder to compare against the Current Manifest, hash by hash. */
+  mirror?: string
+}
+
+/**
+ * Every Blob the Current Manifest references exists in the store with the
+ * right size. With `mirror`, the folder is walked with the same rules as
+ * `release` and every publishable file must match the Manifest by path and
+ * hash, with nothing missing on either side.
+ */
+export async function verify(ctx: Ctx, args: VerifyArgs = {}): Promise<VerifyResult> {
   const log = logger(ctx)
   const manifest = await loadManifest(ctx)
   if (!manifest) return { ok: false, problems: ['no manifest published'] }
@@ -260,10 +270,100 @@ export async function verify(ctx: Ctx): Promise<VerifyResult> {
       problems.push(`${f.path}: blob ${f.sha256} has ${head.size} bytes, manifest says ${f.size}`)
     }
   }
+  if (args.mirror) problems.push(...(await compareMirror(ctx, manifest, args.mirror)))
 
   if (problems.length) log(`verify FAILED:\n${problems.map((p) => '  ' + p).join('\n')}`)
-  else log(`verify OK: build ${manifest.build}, ${manifest.files.length} file(s), ${checked.size} blob(s) consistent.`)
+  else {
+    log(
+      `verify OK: build ${manifest.build}, ${manifest.files.length} file(s), ${checked.size} blob(s) consistent` +
+        (args.mirror ? `, mirror ${args.mirror} matches.` : '.'),
+    )
+  }
   return { ok: problems.length === 0, problems }
+}
+
+/** Problems sorted by path: hash differs, missing from the mirror, or in the mirror but unpublished. */
+async function compareMirror(ctx: Ctx, manifest: Manifest, dir: string): Promise<string[]> {
+  const walked = await walkGameDir(dir, { excludes: ctx.cfg.excludes, skipAbsolute: [ctx.cfg.hashCache] })
+  const cache = await HashCache.load(ctx.cfg.hashCache)
+  const local = new Map<string, { path: string; sha256: string }>()
+  for (const w of walked) {
+    local.set(w.relPath.toLowerCase(), { path: w.relPath, sha256: await cache.hash(w, hasher(ctx)) })
+  }
+  await cache.save()
+
+  const problems: string[] = []
+  const seen = new Set<string>()
+  for (const f of manifest.files) {
+    const key = f.path.toLowerCase()
+    seen.add(key)
+    const l = local.get(key)
+    if (!l) problems.push(`${f.path}: missing from mirror`)
+    else if (l.sha256 !== f.sha256) problems.push(`${f.path}: mirror has ${l.sha256}, manifest says ${f.sha256}`)
+  }
+  for (const [key, l] of local) {
+    if (!seen.has(key)) problems.push(`${l.path}: in mirror but not in manifest`)
+  }
+  return problems.sort(comparePaths)
+}
+
+export interface GcArgs {
+  /** How many of the newest stored Manifests keep their Blobs alive. */
+  keep: number
+}
+
+export interface GcResult {
+  /** Build numbers whose Blobs were retained, newest first; the Current Manifest's build is always among them. */
+  kept: number[]
+  /** Keys deleted (or, under dry-run, that would have been). */
+  deleted: string[]
+}
+
+/**
+ * Deletes every Blob no retained Manifest references. Retained: the N
+ * highest stored build numbers plus the Current Manifest's build, so a
+ * rollback target can never lose its Blobs. Only keys under the Blob prefix
+ * are ever deleted; stored Manifests are never touched.
+ */
+export async function gc(ctx: Ctx, args: GcArgs): Promise<GcResult> {
+  const log = logger(ctx)
+  if (!Number.isSafeInteger(args.keep) || args.keep < 1) throw new Error('gc --keep needs a positive integer')
+  const current = await loadManifest(ctx)
+  if (!current) throw new Error('no manifest published')
+
+  const builds: number[] = []
+  for (const obj of await ctx.store.list(ctx.cfg.manifestsPrefix)) {
+    const m = /^(\d+)\.json$/.exec(obj.key.slice(ctx.cfg.manifestsPrefix.length))
+    if (m) builds.push(Number(m[1]))
+  }
+  builds.sort((a, b) => b - a)
+  const kept = builds.slice(0, args.keep)
+  if (!kept.includes(current.build)) kept.push(current.build)
+
+  const referenced = new Set(current.files.map((f) => f.sha256))
+  for (const build of kept) {
+    if (build === current.build) continue
+    const text = await ctx.store.getText(storedManifestKey(ctx, build))
+    if (text === null) throw new Error(`stored manifest for build ${build} vanished during gc`)
+    for (const f of manifestSchema.parse(JSON.parse(text)).files) referenced.add(f.sha256)
+  }
+
+  const deleted: string[] = []
+  let retained = 0
+  for (const obj of await ctx.store.list(ctx.cfg.objectsPrefix)) {
+    if (!obj.key.startsWith(ctx.cfg.objectsPrefix)) continue
+    if (referenced.has(obj.key.slice(ctx.cfg.objectsPrefix.length))) {
+      retained++
+      continue
+    }
+    await ctx.store.delete(obj.key)
+    deleted.push(obj.key)
+  }
+  log(
+    `gc: kept build(s) ${kept.join(', ')} (${referenced.size} referenced blob(s), ${retained} stored), ` +
+      `deleted ${deleted.length} orphaned blob(s); ${builds.length} stored manifest(s) untouched.`,
+  )
+  return { kept, deleted }
 }
 
 /**
