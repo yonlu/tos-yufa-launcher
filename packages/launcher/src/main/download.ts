@@ -76,6 +76,11 @@ function isAbortError(err: unknown): boolean {
   return e?.name === 'AbortError' || e?.code === 'ABORT_ERR'
 }
 
+function asDownloadError(err: unknown, retryable: boolean): DownloadError {
+  if (err instanceof DownloadError) return err
+  return new DownloadError(`unexpected: ${(err as Error).message}`, 'network', retryable)
+}
+
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new DownloadError('aborted', 'aborted', false))
@@ -243,29 +248,29 @@ export async function downloadAll(jobs: DownloadJob[], opts: EngineOptions = {})
   const retries = opts.retries ?? 5
   const backoff = opts.backoffMs ?? ((attempt) => 1000 * 2 ** (attempt - 1) + Math.random() * 500)
   const intervalMs = opts.progressIntervalMs ?? 250
-  const concurrency = Math.min(3, Math.max(1, Math.floor(opts.concurrency ?? 1)))
+  const concurrency = Number.isFinite(opts.concurrency) ? Math.min(3, Math.max(1, Math.floor(opts.concurrency!))) : 1
 
   const overallTotal = jobs.reduce((s, j) => s + j.size, 0)
   const speed = new SpeedMeter()
   const inFlight = new Map<number, number>() // job index → bytes so far
   let completedBytes = 0
-  let current = -1 // most recently started job
+  let lastStarted = -1 // job index shown on the per-file line
   let lastEmit = 0
 
   const emit = (force = false) => {
     const now = Date.now()
     if (!force && now - lastEmit < intervalMs) return
     lastEmit = now
-    const job = jobs[current]
+    const job = jobs[lastStarted]
     if (!job) return
     let overallBytes = completedBytes
     for (const n of inFlight.values()) overallBytes += n
     const rate = speed.bytesPerSec()
     opts.onProgress?.({
       file: job.name,
-      fileIndex: current + 1,
+      fileIndex: lastStarted + 1,
       fileCount: jobs.length,
-      fileBytes: inFlight.get(current) ?? job.size,
+      fileBytes: inFlight.get(lastStarted) ?? job.size,
       fileTotal: job.size,
       overallBytes,
       overallTotal,
@@ -281,13 +286,16 @@ export async function downloadAll(jobs: DownloadJob[], opts: EngineOptions = {})
   if (opts.signal?.aborted) ac.abort()
   else opts.signal?.addEventListener('abort', onOuterAbort, { once: true })
 
-  let completion: Promise<void> = Promise.resolve()
+  // onFileComplete calls are queued on this chain so they never overlap;
+  // a rejected callback surfaces to its own worker and does not stop the
+  // callbacks of files that were already renamed into place.
+  let callbackChain: Promise<void> = Promise.resolve()
   let firstError: DownloadError | null = null
-  let next = 0
+  let nextIndex = 0
 
   const downloadOne = async (index: number): Promise<void> => {
     const job = jobs[index]!
-    current = index
+    lastStarted = index
     inFlight.set(index, 0)
     const report: AttemptReporter = {
       reset: () => {
@@ -308,10 +316,7 @@ export async function downloadAll(jobs: DownloadJob[], opts: EngineOptions = {})
         await attemptOne(job, fetchImpl, ac.signal, report)
         break
       } catch (err) {
-        const de =
-          err instanceof DownloadError
-            ? err
-            : new DownloadError(`unexpected: ${(err as Error).message}`, 'network', true)
+        const de = asDownloadError(err, true)
         if (!de.retryable || attempt >= retries) throw de
         attempt += 1
         await sleep(backoff(attempt), ac.signal)
@@ -321,20 +326,18 @@ export async function downloadAll(jobs: DownloadJob[], opts: EngineOptions = {})
     inFlight.delete(index)
     completedBytes += job.size
     emit(true)
-    completion = completion.then(() => opts.onFileComplete?.(job, index))
-    await completion
+    const mine = callbackChain.catch(() => {}).then(() => opts.onFileComplete?.(job, index))
+    callbackChain = mine
+    await mine
   }
 
   const worker = async (): Promise<void> => {
-    while (next < jobs.length && !ac.signal.aborted) {
-      const index = next++
+    while (nextIndex < jobs.length && !ac.signal.aborted) {
+      const index = nextIndex++
       try {
         await downloadOne(index)
       } catch (err) {
-        firstError ??=
-          err instanceof DownloadError
-            ? err
-            : new DownloadError(`unexpected: ${(err as Error).message}`, 'network', false)
+        firstError ??= asDownloadError(err, false)
         ac.abort()
       }
     }
@@ -345,6 +348,6 @@ export async function downloadAll(jobs: DownloadJob[], opts: EngineOptions = {})
   } finally {
     opts.signal?.removeEventListener('abort', onOuterAbort)
   }
-  if (firstError) throw firstError
   if (opts.signal?.aborted) throw new DownloadError('aborted', 'aborted', false)
+  if (firstError) throw firstError
 }

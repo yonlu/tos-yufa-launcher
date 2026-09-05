@@ -72,8 +72,9 @@ class PatcherError extends Error {
  * State machine: idle → checking → up-to-date | update-available
  *                → updating(progress) → verifying → ready | error(code)
  * repair(): checking → repairing(hash progress) → same update path.
- * The manifest is authoritative; release.revision.txt is advanced after
- * every completed file so an interruption always leaves a launchable game.
+ * The manifest is authoritative; release.revision.txt is advanced as
+ * files complete — with parallel downloads, only to the highest archive
+ * with no gap below it — so an interruption always leaves a launchable game.
  */
 export class Patcher {
   private readonly paths: GamePaths

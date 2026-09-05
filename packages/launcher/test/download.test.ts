@@ -292,6 +292,7 @@ describe('downloadAll with concurrency', () => {
       overallTotal: 4096 + 2048,
     })
     expect(events.at(-1)!.bytesPerSec).toBeGreaterThan(0)
+    expect(events.at(-1)!.etaSec).toBeGreaterThanOrEqual(0)
 
     stub.finish(A)
     stub.finish(B)
