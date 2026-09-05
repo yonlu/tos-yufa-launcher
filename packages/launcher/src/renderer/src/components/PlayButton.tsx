@@ -21,7 +21,20 @@ interface ButtonSpec {
 
 /** The single morphing call-to-action: check → update (with progress fill) → play. */
 export function PlayButton() {
-  const { patcher, progress, updater, settings, launching, startUpdate, check, play } = useLauncher()
+  const {
+    patcher,
+    progress,
+    updater,
+    settings,
+    launching,
+    installPath,
+    installCheck,
+    installChecking,
+    startUpdate,
+    startInstall,
+    check,
+    play,
+  } = useLauncher()
   const { t } = useTranslation()
 
   const percent =
@@ -36,14 +49,28 @@ export function PlayButton() {
       case 'checking':
         return { label: t('play.checking'), disabled: true, variant: 'neutral', spinner: true }
       case 'update-available':
-        return { label: t('play.update'), onClick: () => void startUpdate(), disabled: false, variant: 'update' }
-      case 'not-installed':
-        // the install screen (folder choice, free space, Install) is issue #6
-        return { label: t('play.install'), disabled: true, variant: 'update' }
+        return {
+          label: t(patcher.installIncomplete ? 'play.resume' : 'play.update'),
+          onClick: () => void startUpdate(),
+          disabled: false,
+          variant: 'update',
+        }
+      case 'not-installed': {
+        // enabled only once the main process judged the folder in the field ok
+        const judged = installCheck && installCheck.path === installPath ? installCheck : null
+        const label =
+          judged?.existing === 'partial' ? 'play.resume' : judged?.existing === 'complete' ? 'play.useFolder' : 'play.install'
+        return {
+          label: t(label),
+          onClick: () => void startInstall(),
+          disabled: installChecking || !judged?.ok,
+          variant: 'update',
+        }
+      }
       case 'installing':
       case 'updating':
         return {
-          label: t('play.updating', { percent }),
+          label: t(patcher.state === 'installing' ? 'play.installing' : 'play.updating', { percent }),
           disabled: true,
           variant: 'update',
           fillPercent: percent,

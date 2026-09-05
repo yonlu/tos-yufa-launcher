@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type {
+  InstallPathCheck,
   NewsResult,
   PatcherProgressEvent,
   PatcherStateEvent,
@@ -7,6 +8,9 @@ import type {
   UpdaterStatusEvent,
 } from '@yufa/shared'
 import i18n from './i18n'
+
+/** Typing pauses this long before the main process is asked about the folder. */
+const VALIDATE_DEBOUNCE_MS = 250
 
 interface LauncherStore {
   patcher: PatcherStateEvent
@@ -17,6 +21,10 @@ interface LauncherStore {
   version: string
   launching: boolean
   initialized: boolean
+  /** Install panel: the folder in the field, and what the main process last said about it. */
+  installPath: string
+  installCheck: InstallPathCheck | null
+  installChecking: boolean
   init(): Promise<void>
   check(): Promise<void>
   startUpdate(): Promise<void>
@@ -25,7 +33,13 @@ interface LauncherStore {
   play(): Promise<void>
   saveSettings(p: Partial<Settings>): Promise<void>
   selectGamePath(): Promise<{ path: string; valid: boolean } | null>
+  setInstallPath(path: string): void
+  browseInstallPath(): Promise<void>
+  startInstall(): Promise<void>
 }
+
+let validateTimer: ReturnType<typeof setTimeout> | undefined
+let validateSeq = 0
 
 export const useLauncher = create<LauncherStore>((set, get) => ({
   patcher: { state: 'idle' },
@@ -36,6 +50,9 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   version: '',
   launching: false,
   initialized: false,
+  installPath: '',
+  installCheck: null,
+  installChecking: false,
 
   async init() {
     if (get().initialized) return
@@ -50,6 +67,8 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
             ? s.progress
             : null,
       }))
+      // a cancelled run lands on idle; re-check so the panel or the Update/Resume button comes back
+      if (e.state === 'idle') void get().check()
     })
     yufa.onPatcherProgress((e) => set({ progress: e }))
     yufa.onUpdaterStatus((e) => set({ updater: e }))
@@ -65,6 +84,12 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   async check() {
     const e = await window.yufa.patcherCheck()
     set({ patcher: e })
+    if (e.state === 'not-installed') {
+      // prefill once with the configured folder (the publisher default on a
+      // first run); re-judge it now that the Current Manifest is known
+      const path = get().installPath || get().settings?.gamePath || (await window.yufa.installDefaultPath())
+      get().setInstallPath(path)
+    }
   },
 
   startUpdate: () => window.yufa.patcherStart(),
@@ -88,11 +113,33 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   },
 
   async selectGamePath() {
-    const result = await window.yufa.settingsSelectGamePath()
+    const result = await window.yufa.settingsSelectGamePath(i18n.t('settings.browseTitle'))
     if (result?.valid) {
-      set({ settings: await window.yufa.settingsGet() })
+      set({ settings: await window.yufa.settingsGet(), installPath: result.path })
       await get().check()
     }
     return result
+  },
+
+  setInstallPath(path) {
+    set({ installPath: path, installChecking: true })
+    clearTimeout(validateTimer)
+    const seq = ++validateSeq
+    validateTimer = setTimeout(async () => {
+      const check = await window.yufa.installValidatePath(path)
+      if (seq === validateSeq) set({ installCheck: check, installChecking: false })
+    }, VALIDATE_DEBOUNCE_MS)
+  },
+
+  async browseInstallPath() {
+    const chosen = await window.yufa.installBrowse(get().installPath, i18n.t('install.browseTitle'))
+    if (chosen) get().setInstallPath(chosen)
+  },
+
+  async startInstall() {
+    const { installPath, installCheck } = get()
+    if (!installCheck?.ok || installCheck.path !== installPath) return
+    await window.yufa.installStart(installPath)
+    set({ settings: await window.yufa.settingsGet() })
   },
 }))

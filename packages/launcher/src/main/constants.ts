@@ -10,4 +10,5 @@ export const LAUNCHER_FEED_URL =
 
 export const FALLBACK_NEWS_URL = MANIFEST_URL.replace(/manifest\.json.*$/, 'news/news.json')
 
-export const DEFAULT_GAME_DIR = 'C:\\tree of savior servers\\Classic'
+/** Publisher folder convention: the game goes next to the launcher under Hyped Games on the system drive. */
+export const DEFAULT_INSTALL_DIR = `${process.env['SystemDrive'] ?? 'C:'}\\Hyped Games\\ToS Classic`

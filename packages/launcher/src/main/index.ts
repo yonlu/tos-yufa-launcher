@@ -1,9 +1,10 @@
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron'
 import log from 'electron-log/main'
 import { IPC, type LaunchResult, type PatcherProgressEvent, type PatcherStateEvent, type Settings } from '@yufa/shared'
-import { DEFAULT_GAME_DIR, FALLBACK_NEWS_URL, LAUNCHER_FEED_URL, MANIFEST_URL } from './constants'
+import { DEFAULT_INSTALL_DIR, FALLBACK_NEWS_URL, LAUNCHER_FEED_URL, MANIFEST_URL } from './constants'
 import { isGameRunning, launchGame } from './game'
+import { validateInstallPath } from './installPath'
 import { cleanupStaleParts, gamePaths, isValidGameDir, probeGameDirWritable } from './localState'
 import { fetchNews } from './news'
 import { Patcher } from './patcher'
@@ -27,9 +28,10 @@ async function bootstrap(): Promise<void> {
   log.initialize()
   log.info(`launcher ${app.getVersion()} starting (manifest: ${MANIFEST_URL})`)
 
+  // Without a known game folder the install panel targets the publisher default.
   const settings = new SettingsStore(app.getPath('userData'))
   if (!settings.get().gamePath) {
-    settings.set({ gamePath: await detectGamePath() })
+    settings.set({ gamePath: (await detectGamePath()) || DEFAULT_INSTALL_DIR })
   }
 
   let win: BrowserWindow | null = null
@@ -134,9 +136,9 @@ async function bootstrap(): Promise<void> {
     if (after.gamePath !== before) patcher = buildPatcher()
     return after
   })
-  ipcMain.handle(IPC.settingsSelectGamePath, async () => {
+  ipcMain.handle(IPC.settingsSelectGamePath, async (_e, title: string) => {
     const result = await dialog.showOpenDialog({
-      title: 'Selecione a pasta do jogo',
+      title,
       defaultPath: settings.get().gamePath || undefined,
       properties: ['openDirectory'],
     })
@@ -148,6 +150,43 @@ async function bootstrap(): Promise<void> {
       patcher = buildPatcher()
     }
     return { path, valid }
+  })
+
+  // ---- first-run install ----
+  /** Bytes of the whole Build, from the Current Manifest the last check loaded; null before one. */
+  const buildBytes = (): number | null =>
+    patcher.loadedManifest?.files.reduce((sum, f) => sum + f.size, 0) ?? null
+
+  ipcMain.handle(IPC.installDefaultPath, () => DEFAULT_INSTALL_DIR)
+  ipcMain.handle(IPC.installValidatePath, (_e, path: string) => validateInstallPath(path, buildBytes()))
+  ipcMain.handle(IPC.installBrowse, async (_e, current: string, title: string) => {
+    const result = await dialog.showOpenDialog({
+      title,
+      defaultPath: current || DEFAULT_INSTALL_DIR,
+      properties: ['openDirectory', 'createDirectory', 'promptToCreate'],
+    })
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
+  ipcMain.handle(IPC.installStart, async (_e, path: string) => {
+    // The renderer only enables Install on an ok check; re-judge here so a
+    // stale check can never send the patcher into Program Files or a
+    // read-only drive. Space is left to the patcher's own disk-full path.
+    const check = await validateInstallPath(path, buildBytes())
+    const blocking = check.problems.filter((p) => p !== 'not-enough-space' && p !== 'no-manifest')
+    if (blocking.length) {
+      send(IPC.patcherState, {
+        state: 'error',
+        error: { code: blocking.includes('not-writable') ? 'patch-dir-readonly' : 'bad-game-path', message: path },
+      } satisfies PatcherStateEvent)
+      return
+    }
+    const gamePath = resolve(path.trim()) // what validation judged, not the raw field text
+    if (gamePath !== settings.get().gamePath) {
+      settings.set({ gamePath })
+      patcher = buildPatcher()
+    }
+    log.info(`install requested into ${gamePath}`)
+    void patcher.installOrResume()
   })
 
   ipcMain.handle(IPC.newsGet, () => {
@@ -197,12 +236,11 @@ async function bootstrap(): Promise<void> {
 }
 
 async function detectGamePath(): Promise<string> {
-  const candidates: string[] = []
-  if (process.env['YUFA_GAME_DIR']) candidates.push(process.env['YUFA_GAME_DIR'])
+  // test/e2e hook: the sandbox folder is the game folder even while still empty
+  if (process.env['YUFA_GAME_DIR']) return process.env['YUFA_GAME_DIR']
   // launcher installed inside the game folder (or one level below it)
   const exeDir = dirname(app.getPath('exe'))
-  candidates.push(exeDir, join(exeDir, '..'), join(exeDir, '..', '..'))
-  candidates.push(DEFAULT_GAME_DIR)
+  const candidates = [exeDir, join(exeDir, '..'), join(exeDir, '..', '..'), DEFAULT_INSTALL_DIR]
   for (const c of candidates) {
     if (await isValidGameDir(c)) return c
   }

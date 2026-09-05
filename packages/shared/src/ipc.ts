@@ -10,6 +10,10 @@ export const IPC = {
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
   settingsSelectGamePath: 'settings:selectGamePath',
+  installDefaultPath: 'install:defaultPath',
+  installValidatePath: 'install:validatePath',
+  installBrowse: 'install:browse',
+  installStart: 'install:start',
   newsGet: 'news:get',
   appGetVersion: 'app:getVersion',
   appOpenExternal: 'app:openExternal',
@@ -71,6 +75,8 @@ export interface PatcherStateEvent {
   error?: ErrorInfo
   /** With state 'error' code 'offline': the Install Record says the Build is complete, Play may be offered. */
   offlinePlayable?: boolean
+  /** With state 'update-available': the Install Record is not complete, so this update finishes an interrupted install. */
+  installIncomplete?: boolean
   plan?: PlanSummary
 }
 
@@ -85,6 +91,23 @@ export interface PatcherProgressEvent {
   overallTotal: number
   bytesPerSec: number
   etaSec: number | null
+}
+
+/** Why a candidate install folder cannot be used; a folder may fail for several reasons at once. */
+export type InstallPathProblem = 'invalid' | 'forbidden' | 'not-writable' | 'not-enough-space' | 'no-manifest'
+
+/** What the main process learned about a candidate install folder. */
+export interface InstallPathCheck {
+  path: string
+  /** True when `problems` is empty: Install may start here. */
+  ok: boolean
+  problems: InstallPathProblem[]
+  /** Free bytes on the drive the folder lives on; null when the drive could not be read. */
+  freeBytes: number | null
+  /** Bytes the whole Build needs plus the safety margin; null without a Current Manifest. */
+  requiredBytes: number | null
+  /** What the folder already holds: an unfinished Install Record or a bare client is `partial`. */
+  existing: 'none' | 'partial' | 'complete'
 }
 
 export interface Settings {
@@ -121,7 +144,15 @@ export interface YufaApi {
   gameLaunch(): Promise<LaunchResult>
   settingsGet(): Promise<Settings>
   settingsSet(partial: Partial<Settings>): Promise<Settings>
-  settingsSelectGamePath(): Promise<{ path: string; valid: boolean } | null>
+  /** "Locate existing install": directory picker titled by the renderer's locale; adopts the folder when valid. */
+  settingsSelectGamePath(title: string): Promise<{ path: string; valid: boolean } | null>
+  /** The publisher-conventional folder a first install is offered in. */
+  installDefaultPath(): Promise<string>
+  installValidatePath(path: string): Promise<InstallPathCheck>
+  /** Directory picker for the install panel, titled by the renderer's locale; null when dismissed. Does not touch settings. */
+  installBrowse(current: string, title: string): Promise<string | null>
+  /** Makes `path` the game folder and installs the Current Manifest into it, or resumes what is there. */
+  installStart(path: string): Promise<void>
   newsGet(): Promise<NewsResult>
   appGetVersion(): Promise<string>
   appOpenExternal(url: string): Promise<void>

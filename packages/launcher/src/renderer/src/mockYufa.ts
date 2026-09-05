@@ -1,4 +1,6 @@
 import type {
+  InstallPathCheck,
+  InstallPathProblem,
   PatcherProgressEvent,
   PatcherStateEvent,
   Settings,
@@ -8,8 +10,9 @@ import type {
 
 /**
  * Browser/dev harness: installed only when the preload bridge is absent.
- * Drive states via the URL, e.g. ?mock=updating, ?mock=error&code=offline —
- * lets every UI state be exercised without Electron or a patch server.
+ * Drive states via the URL, e.g. ?mock=updating, ?mock=error&code=offline,
+ * ?mock=not-installed[&partial][&nospace], ?mock=resume — lets every UI state be exercised
+ * without Electron or a patch server.
  */
 export function installMockIfNeeded(): void {
   if (window.yufa) return
@@ -22,8 +25,9 @@ export function installMockIfNeeded(): void {
   const progressListeners = new Set<(e: PatcherProgressEvent) => void>()
   const updaterListeners = new Set<(e: UpdaterStatusEvent) => void>()
 
+  const DEFAULT_INSTALL_DIR = 'C:\\Hyped Games\\ToS Classic'
   const settings: Settings = {
-    gamePath: 'C:\\tos-servers\\Classic',
+    gamePath: scenario === 'not-installed' ? DEFAULT_INSTALL_DIR : 'C:\\tos-servers\\Classic',
     language: (params.get('lang') as 'pt-BR' | 'en') ?? 'pt-BR',
     launchArgs: '-SERVICE /S',
     afterLaunch: 'quit',
@@ -32,15 +36,16 @@ export function installMockIfNeeded(): void {
   }
 
   const plan = { fileCount: 3, deleteCount: 0, totalBytes: 157_286_400, targetRevision: 234932, localRevision: 234929 }
+  const BUILD_BYTES = 13_400_000_000
+  const fullPlan = { fileCount: 2140, deleteCount: 0, totalBytes: BUILD_BYTES, targetRevision: 234932, localRevision: 0 }
 
   function emitState(e: PatcherStateEvent): void {
     stateListeners.forEach((cb) => cb(e))
   }
 
-  function simulateUpdate(): void {
-    emitState({ state: 'updating', plan })
+  function simulateDownload(state: 'installing' | 'updating', total: number): void {
+    emitState({ state, plan: state === 'installing' ? fullPlan : plan })
     let bytes = 0
-    const total = plan.totalBytes
     const timer = setInterval(() => {
       bytes = Math.min(total, bytes + total / 40)
       progressListeners.forEach((cb) =>
@@ -65,10 +70,33 @@ export function installMockIfNeeded(): void {
     }, 250)
   }
 
+  /** Fake folder judgement: Program Files/Windows are forbidden, ?nospace starves the drive, ?partial finds an old install. */
+  function judgePath(path: string): InstallPathCheck {
+    const problems: InstallPathProblem[] = []
+    if (!/^[A-Za-z]:[\\/]/.test(path)) problems.push('invalid')
+    else {
+      if (/program files|\\windows(\\|$)/i.test(path)) problems.push('forbidden')
+      if (/locked/i.test(path)) problems.push('not-writable')
+      if (params.has('nospace')) problems.push('not-enough-space')
+    }
+    return {
+      path,
+      ok: problems.length === 0,
+      problems,
+      freeBytes: params.has('nospace') ? 2_000_000_000 : 120_000_000_000,
+      requiredBytes: BUILD_BYTES + 200 * 1024 * 1024,
+      existing: params.has('partial') ? 'partial' : 'none',
+    }
+  }
+
   const checkResult = (): PatcherStateEvent => {
     switch (scenario) {
       case 'up-to-date':
         return { state: 'up-to-date', plan: { ...plan, fileCount: 0, totalBytes: 0 } }
+      case 'not-installed':
+        return { state: 'not-installed', plan: fullPlan }
+      case 'resume':
+        return { state: 'update-available', installIncomplete: true, plan: { ...fullPlan, fileCount: 812 } }
       case 'error':
         return {
           state: 'error',
@@ -88,10 +116,10 @@ export function installMockIfNeeded(): void {
       emitState(e)
       return e
     },
-    patcherStart: async () => simulateUpdate(),
+    patcherStart: async () => simulateDownload('updating', plan.totalBytes),
     patcherRepair: async () => {
       emitState({ state: 'repairing' })
-      setTimeout(() => simulateUpdate(), 1200)
+      setTimeout(() => simulateDownload('updating', plan.totalBytes), 1200)
     },
     patcherCancel: async () => emitState({ state: 'idle' }),
     gameLaunch: async () => {
@@ -101,6 +129,20 @@ export function installMockIfNeeded(): void {
     settingsGet: async () => settings,
     settingsSet: async (p) => Object.assign(settings, p),
     settingsSelectGamePath: async () => ({ path: 'C:\\mock\\path', valid: params.get('badpath') === null }),
+    installDefaultPath: async () => DEFAULT_INSTALL_DIR,
+    installValidatePath: async (path) => {
+      await new Promise((r) => setTimeout(r, 300))
+      return judgePath(path)
+    },
+    installBrowse: async (current) => (params.has('browsecancel') ? null : `${current || 'D:'}\\picked`),
+    installStart: async (path) => {
+      settings.gamePath = path
+      console.log(`[mock] install into ${path}`)
+      // the real main process checks first, then installs an empty folder or resumes (update path) a partial one
+      emitState({ state: 'checking' })
+      const resume = params.has('partial')
+      setTimeout(() => simulateDownload(resume ? 'updating' : 'installing', fullPlan.totalBytes / (resume ? 3 : 1)), 500)
+    },
     newsGet: async () => ({
       stale: params.has('stalenews'),
       items: [

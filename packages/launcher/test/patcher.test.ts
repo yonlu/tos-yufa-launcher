@@ -286,6 +286,7 @@ describe('Install into an empty folder (publish CLI → dev server → patcher �
     const p2 = makePatcher()
     const checked = await p2.check()
     expect(checked.state).toBe('update-available')
+    expect(checked.installIncomplete).toBe(true) // the UI offers Resume, not Update
     expect(checked.plan!.fileCount).toBe(manifest.files.length - N)
     expect((await p2.update()).state).toBe('ready')
 
@@ -296,6 +297,40 @@ describe('Install into an empty folder (publish CLI → dev server → patcher �
       expect((await readFile(local(path))).equals(content), path).toBe(true)
     }
     expect((await readRecord()).completed).toBe(true)
+  })
+
+  it('installOrResume installs an empty folder, and picks an interrupted install back up without re-fetching', async () => {
+    const { manifest } = await publishTree()
+    const N = 2
+    let objectRequests = 0
+    let p: Patcher
+    const fetchImpl: typeof fetch = (input, init) => {
+      if (String(input).includes('/objects/') && ++objectRequests > N) p.cancel()
+      return fetch(input, init)
+    }
+    const states: string[] = []
+    p = makePatcher({ fetchImpl, downloadConcurrency: () => 1, onState: (e) => states.push(e.state) })
+    expect((await p.installOrResume()).state).toBe('idle')
+    expect(states.slice(0, 3)).toEqual(['checking', 'not-installed', 'installing'])
+    const finished = requestedPaths(server.requests, manifest).slice(0, N)
+    server.requests.length = 0
+
+    states.length = 0
+    const p2 = makePatcher({ downloadConcurrency: () => 1, onState: (e) => states.push(e.state) })
+    expect((await p2.installOrResume()).state).toBe('ready')
+    expect(states).toEqual(['checking', 'update-available', 'updating', 'verifying', 'ready'])
+    const resumed = requestedPaths(server.requests, manifest)
+    expect(resumed).toHaveLength(manifest.files.length - N)
+    expect(resumed.filter((path) => finished.includes(path))).toEqual([])
+    expect((await readRecord()).completed).toBe(true)
+  })
+
+  it('installOrResume on a complete install is a plain check: up-to-date, nothing fetched', async () => {
+    await publishTree()
+    await installFresh()
+    server.requests.length = 0
+    expect((await makePatcher().installOrResume()).state).toBe('up-to-date')
+    expect(server.requests.filter((r) => r.path.startsWith('/objects/'))).toEqual([])
   })
 
   it('a file renamed into place just before a crash (not yet in the record) is hashed, not fetched again', async () => {
@@ -378,6 +413,7 @@ describe('Install into an empty folder (publish CLI → dev server → patcher �
     const p = makePatcher()
     const checked = await p.check()
     expect(checked.state).toBe('update-available')
+    expect(checked.installIncomplete).toBe(true)
     expect(checked.plan!.fileCount).toBe(5) // every other Managed File; the layout is already there
     expect((await readRecord()).files.map((f) => f.path)).toEqual(['release/a.dll'])
     expect((await p.update()).state).toBe('ready')
@@ -409,6 +445,7 @@ describe('Updating an installed Build', () => {
     const p = makePatcher()
     const checked = await p.check()
     expect(checked.state).toBe('update-available')
+    expect(checked.installIncomplete).toBe(false) // a complete install getting a patch: plain Update
     expect(checked.plan).toMatchObject({ fileCount: 1, targetRevision: REV_B + 1, localRevision: REV_B })
     expect((await p.update()).state).toBe('ready')
     expect(await readLocalRevision(gamePaths(gameDir))).toBe(REV_B + 1)

@@ -23,10 +23,13 @@ export function StatusArea() {
     case 'ready':
       statusLine = t('status.ready', { revision: patcher.plan?.targetRevision ?? '' })
       break
+    case 'not-installed':
+      statusLine = t('status.notInstalled', { size: formatBytes(patcher.plan?.totalBytes ?? 0) })
+      break
     case 'update-available':
       statusLine =
         (patcher.plan?.fileCount ?? 0) > 0
-          ? t('status.updateAvailable', {
+          ? t(patcher.installIncomplete ? 'status.resumeAvailable' : 'status.updateAvailable', {
               count: patcher.plan?.fileCount ?? 0,
               size: formatBytes(patcher.plan?.totalBytes ?? 0),
             })

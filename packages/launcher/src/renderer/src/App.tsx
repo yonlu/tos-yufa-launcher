@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import headBg from './assets/head_bg.png'
 import headLeaves from './assets/head_leaves.png'
 import { ErrorBanner } from './components/ErrorBanner'
+import { InstallPanel } from './components/InstallPanel'
 import { NewsPanel } from './components/NewsPanel'
 import { PlayButton } from './components/PlayButton'
 import { SettingsModal } from './components/SettingsModal'
@@ -46,6 +47,7 @@ export default function App() {
                 {t('hero.title')} <span className="text-tos-orange">{t('hero.highlight')}</span>
               </h1>
             </div>
+            <InstallPanel />
             <ErrorBanner />
           </section>
           <div className="animate-fade-up flex opacity-0" style={{ animationDelay: '0.3s' }}>

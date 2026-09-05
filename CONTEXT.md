@@ -21,7 +21,7 @@ Glossary for the launcher and its publishing pipeline. Terms only; no implementa
 
 ## Launcher states
 
-- **Not installed** — no valid game folder known; the launcher offers Install.
+- **Not installed** — no valid game folder known; the launcher offers Install into an **Install folder** the player picks (default `C:\Hyped Games\ToS Classic`). Install is refused in the **Forbidden locations** (Program Files, Windows), where the folder cannot be created, or without room for the Build plus margin. A folder already holding an unfinished Install Record or a client executable is offered as Resume instead.
 - **Installing** — first-time download of a whole build into a chosen folder. Resumable across launcher restarts.
 - **Checking / Update available / Up to date / Updating / Verifying / Ready** — as before: compare local install to the current manifest, fetch what differs.
 - **Repair** — deep verification: every Managed File re-hashed, differences healed.

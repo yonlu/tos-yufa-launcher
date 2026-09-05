@@ -124,11 +124,19 @@ interface AttemptReporter {
   add(n: number, network: boolean): void
 }
 
-/** Frees `needed` bytes plus a 200 MB safety margin, or throws disk-full. */
-export async function ensureDiskSpace(dir: string, needed: number): Promise<void> {
+/** Safety margin kept free beyond the bytes a plan downloads. */
+export const DISK_SPACE_MARGIN_BYTES = 200 * 1024 * 1024
+
+/** Bytes available to this user on the drive holding `dir` (which must exist). */
+export async function freeBytes(dir: string): Promise<number> {
   const sf = await fs.statfs(dir)
-  const free = Number(sf.bavail) * Number(sf.bsize)
-  const required = needed + 200 * 1024 * 1024
+  return Number(sf.bavail) * Number(sf.bsize)
+}
+
+/** Frees `needed` bytes plus the safety margin, or throws disk-full. */
+export async function ensureDiskSpace(dir: string, needed: number): Promise<void> {
+  const free = await freeBytes(dir)
+  const required = needed + DISK_SPACE_MARGIN_BYTES
   if (free < required) {
     throw new DownloadError(
       `need ${Math.ceil(required / 1e6)} MB free in ${dir}, only ${Math.floor(free / 1e6)} MB available`,

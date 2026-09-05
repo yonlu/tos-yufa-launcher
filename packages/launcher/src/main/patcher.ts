@@ -210,7 +210,8 @@ export class Patcher {
       }
       return this.setState({ state: 'up-to-date', plan: summary })
     }
-    return this.setState({ state: 'update-available', plan: summary })
+    // no complete record: an interrupted install/update, or a located bare client — the UI offers Resume
+    return this.setState({ state: 'update-available', plan: summary, installIncomplete: record?.completed !== true })
   }
 
   /** First-time install of the Current Manifest into the (possibly empty) game folder. */
@@ -220,6 +221,18 @@ export class Patcher {
 
   async update(): Promise<PatcherStateEvent> {
     return this.apply('updating')
+  }
+
+  /**
+   * What the install panel's primary button does: check the folder, then
+   * install it when empty or finish what an earlier run left there. Any
+   * other outcome of the check (up-to-date, error) is returned as is.
+   */
+  async installOrResume(): Promise<PatcherStateEvent> {
+    const checked = await this.check()
+    if (checked.state === 'not-installed') return this.install()
+    if (checked.state === 'update-available') return this.update()
+    return checked
   }
 
   private async apply(state: 'installing' | 'updating'): Promise<PatcherStateEvent> {
