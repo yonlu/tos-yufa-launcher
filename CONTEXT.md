@@ -9,6 +9,7 @@ Glossary for the launcher and its publishing pipeline. Terms only; no implementa
 - **Current manifest** — the manifest players are pointed at right now. Publishing a build or rolling back changes which build is current; it never edits a published build.
 - **Blob** — the stored content of one file, addressed by its content hash. Identical files share one blob across builds.
 - **Release (verb)** — publish a full build from a local game folder. **Patch (verb)** — publish a build that differs from the current one by added numbered patch archives only. **Rollback** — make an earlier build current again. **GC (verb)** — delete Blobs referenced by none of the retained builds (the N newest stored Manifests plus the Current Manifest); never deletes a Manifest.
+- **Mirror** — the local game folder a Build was released from. `verify --mirror` re-hashes every publishable file in it and requires the Current Manifest and the folder to agree in both directions.
 
 ## Files in the game folder
 

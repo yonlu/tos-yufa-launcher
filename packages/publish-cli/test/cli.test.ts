@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, writeFile, truncate, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, truncate, rm, stat, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -434,6 +434,20 @@ describe('verify', () => {
     ])
   })
 
+  it('--mirror hashes every file for real: a rewrite that keeps size and mtime is still caught', async () => {
+    const t = await makeGameTree()
+    await release(ctx, { dir: t.game }) // warms the hash cache for data/bg.ipf
+    const st = await stat(t.bg.path)
+    const changed = await put(t.game, 'data/bg.ipf', randomBytes(256))
+    await utimes(t.bg.path, st.atime, st.mtime)
+    const cacheBefore = await readFile(cfg.hashCache, 'utf8')
+
+    const result = await verify(ctx, { mirror: t.game })
+
+    expect(result.problems).toEqual([`data/bg.ipf: mirror has ${sha(changed.content)}, manifest says ${sha(t.bg.content)}`])
+    expect(await readFile(cfg.hashCache, 'utf8')).toBe(cacheBefore)
+  })
+
   it('--mirror still reports store problems alongside mirror problems', async () => {
     const t = await makeGameTree()
     await release(ctx, { dir: t.game })
@@ -504,9 +518,24 @@ describe('gc', () => {
     expect(await store.list('objects/')).toHaveLength(6)
   })
 
-  it('refuses a non-positive keep count and a store without a Current Manifest', async () => {
+  it('refuses a non-integer or non-positive keep count and a store without a Current Manifest', async () => {
     await expect(gc(ctx, { keep: 0 })).rejects.toThrow(/positive integer/)
+    await expect(gc(ctx, { keep: 2.5 })).rejects.toThrow(/positive integer/)
     await expect(gc(ctx, { keep: 1 })).rejects.toThrow(/no manifest published/)
+    expect(store.deleted).toEqual([])
+  })
+
+  it('refuses a config that puts Manifests, news or launcher files under the Blob prefix', async () => {
+    const t = await makeGameTree()
+    await release(ctx, { dir: t.game })
+    for (const bad of [
+      { manifestKey: 'objects/manifest.json' },
+      { manifestsPrefix: 'objects/manifests/' },
+      { newsKey: 'objects/news.json' },
+      { launcherPrefix: 'objects/launcher/' },
+    ]) {
+      await expect(gc({ ...ctx, cfg: { ...cfg, ...bad } }, { keep: 1 })).rejects.toThrow(/objectsPrefix/)
+    }
     expect(store.deleted).toEqual([])
   })
 })

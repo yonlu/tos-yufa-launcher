@@ -71,7 +71,7 @@ program
   .description('delete Blobs that none of the N newest stored Builds (nor the current one) reference')
   .requiredOption('--keep <n>', 'how many of the newest Builds keep their Blobs')
   .action(async (o: { keep: string }) => {
-    await gc(buildCtx(), { keep: Number.parseInt(o.keep, 10) })
+    await gc(buildCtx(), { keep: Number(o.keep) })
   })
 
 program

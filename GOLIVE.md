@@ -38,7 +38,8 @@ Escolha o domínio público do patch (ex.: `patch.yufa.com.br`) e substitua `REP
    `npx tsx packages/publish-cli/src/index.ts release --dir C:\tos-servers\Classic --label 1.0`
    (use `--dry-run` antes; depois `verify --mirror C:\tos-servers\Classic`, que confere cada Blob no bucket e
    cada hash contra a pasta local). De tempos em tempos, `gc --keep 3 --dry-run` e então `gc --keep 3` para apagar
-   Blobs que nenhum dos 3 Builds mais recentes (nem o atual) referencia.
+   Blobs que nenhum dos 3 Builds mais recentes (nem o atual) referencia. Nunca rode `gc` com um `release`/`patch`
+   em andamento: os Blobs subem antes do Manifest que os referencia.
 4. **Notícias**: edite `news/news.json` → `… news push`.
 5. **Launcher**: `npm run dist -w @yufa/launcher` → teste o instalador → `… launcher packages/launcher/release-builds`.
    Publique o `Yufa-Launcher-Setup-1.0.0.exe` no site no lugar do GameUpdater antigo.

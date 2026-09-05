@@ -14,7 +14,7 @@ import {
 import type { PublishConfig } from './config'
 import { HashCache, sha256File, type HashFile } from './hash'
 import { CACHE, CONTENT_TYPES, type PublishStore } from './store'
-import { walkGameDir } from './tree'
+import { walkGameDir, type WalkOptions } from './tree'
 
 export interface Ctx {
   cfg: PublishConfig
@@ -59,17 +59,34 @@ function blobKey(ctx: Ctx, sha256: string): string {
   return ctx.cfg.objectsPrefix + sha256
 }
 
+/** Build numbers of every stored Manifest, highest first. */
+async function storedBuildNumbers(ctx: Ctx): Promise<number[]> {
+  const builds: number[] = []
+  for (const obj of await ctx.store.list(ctx.cfg.manifestsPrefix)) {
+    const m = /^(\d+)\.json$/.exec(obj.key.slice(ctx.cfg.manifestsPrefix.length))
+    if (m) builds.push(Number(m[1]))
+  }
+  return builds.sort((a, b) => b - a)
+}
+
+/** The stored Manifest for `build`, with the exact text it was published as; null when there is none. */
+async function loadStoredManifest(ctx: Ctx, build: number): Promise<{ text: string; manifest: Manifest } | null> {
+  const text = await ctx.store.getText(storedManifestKey(ctx, build))
+  if (text === null) return null
+  return { text, manifest: manifestSchema.parse(JSON.parse(text)) }
+}
+
+/** The same walk `release` publishes from, so a mirror check sees exactly the publishable files. */
+function gameDirWalkOptions(ctx: Ctx): WalkOptions {
+  return { excludes: ctx.cfg.excludes, skipAbsolute: [ctx.cfg.hashCache] }
+}
+
 /**
  * Builds are immutable, so the next number is one above the highest stored
  * Manifest — not above the current one, which rollback may have lowered.
  */
 async function nextBuildNumber(ctx: Ctx, current: Manifest | null): Promise<number> {
-  let top = current?.build ?? 0
-  for (const obj of await ctx.store.list(ctx.cfg.manifestsPrefix)) {
-    const m = /^(\d+)\.json$/.exec(obj.key.slice(ctx.cfg.manifestsPrefix.length))
-    if (m) top = Math.max(top, Number(m[1]))
-  }
-  return top + 1
+  return Math.max(current?.build ?? 0, ...(await storedBuildNumbers(ctx))) + 1
 }
 
 /**
@@ -142,10 +159,7 @@ export interface ReleaseArgs {
 /** Publish a complete Build from a local game folder. */
 export async function release(ctx: Ctx, args: ReleaseArgs): Promise<Manifest> {
   const log = logger(ctx)
-  const walked = await walkGameDir(args.dir, {
-    excludes: ctx.cfg.excludes,
-    skipAbsolute: [ctx.cfg.hashCache],
-  })
+  const walked = await walkGameDir(args.dir, gameDirWalkOptions(ctx))
   if (!walked.length) throw new Error(`${args.dir} contains no publishable files`)
 
   const seedOnce = new Set(ctx.cfg.seedOnce.map((p) => p.replace(/\\/g, '/').toLowerCase()))
@@ -216,9 +230,9 @@ export async function patch(ctx: Ctx, args: PatchArgs): Promise<Manifest> {
 /** Make a stored Build current again. Writes only the Current Manifest. */
 export async function rollback(ctx: Ctx, build: number): Promise<Manifest> {
   if (!Number.isSafeInteger(build) || build < 1) throw new Error('rollback needs a positive integer build number')
-  const text = await ctx.store.getText(storedManifestKey(ctx, build))
-  if (text === null) throw new Error(`no stored manifest for build ${build}`)
-  const manifest = manifestSchema.parse(JSON.parse(text))
+  const stored = await loadStoredManifest(ctx, build)
+  if (!stored) throw new Error(`no stored manifest for build ${build}`)
+  const { text, manifest } = stored
   await ctx.store.putText(ctx.cfg.manifestKey, text, {
     contentType: CONTENT_TYPES.json,
     cacheControl: CACHE.none,
@@ -282,15 +296,16 @@ export async function verify(ctx: Ctx, args: VerifyArgs = {}): Promise<VerifyRes
   return { ok: problems.length === 0, problems }
 }
 
-/** Problems sorted by path: hash differs, missing from the mirror, or in the mirror but unpublished. */
+/**
+ * Problems sorted by path: hash differs, missing from the Mirror, or in the
+ * Mirror but unpublished. Every file is hashed for real — the hash cache
+ * trusts size+mtime, which is exactly what a verification must not do.
+ */
 async function compareMirror(ctx: Ctx, manifest: Manifest, dir: string): Promise<string[]> {
-  const walked = await walkGameDir(dir, { excludes: ctx.cfg.excludes, skipAbsolute: [ctx.cfg.hashCache] })
-  const cache = await HashCache.load(ctx.cfg.hashCache)
   const local = new Map<string, { path: string; sha256: string }>()
-  for (const w of walked) {
-    local.set(w.relPath.toLowerCase(), { path: w.relPath, sha256: await cache.hash(w, hasher(ctx)) })
+  for (const w of await walkGameDir(dir, gameDirWalkOptions(ctx))) {
+    local.set(w.relPath.toLowerCase(), { path: w.relPath, sha256: await hasher(ctx)(w.absPath) })
   }
-  await cache.save()
 
   const problems: string[] = []
   const seen = new Set<string>()
@@ -308,7 +323,7 @@ async function compareMirror(ctx: Ctx, manifest: Manifest, dir: string): Promise
 }
 
 export interface GcArgs {
-  /** How many of the newest stored Manifests keep their Blobs alive. */
+  /** How many of the newest Builds keep their Blobs alive. */
   keep: number
 }
 
@@ -320,37 +335,57 @@ export interface GcResult {
 }
 
 /**
- * Deletes every Blob no retained Manifest references. Retained: the N
- * highest stored build numbers plus the Current Manifest's build, so a
- * rollback target can never lose its Blobs. Only keys under the Blob prefix
- * are ever deleted; stored Manifests are never touched.
+ * gc deletes everything under the Blob prefix that no retained Build
+ * references, so nothing else may live under it — a config that nests the
+ * Current Manifest there would let gc delete it.
+ */
+function assertBlobPrefixIsolated(cfg: PublishConfig): void {
+  const others: [string, string][] = [
+    ['manifestKey', cfg.manifestKey],
+    ['manifestsPrefix', cfg.manifestsPrefix],
+    ['newsKey', cfg.newsKey],
+    ['newsImagesPrefix', cfg.newsImagesPrefix],
+    ['launcherPrefix', cfg.launcherPrefix],
+    ['redistPrefix', cfg.redistPrefix],
+  ]
+  for (const [name, value] of others) {
+    if (value.startsWith(cfg.objectsPrefix)) {
+      throw new Error(`${name} (${value}) lies under objectsPrefix (${cfg.objectsPrefix}); gc refuses to run`)
+    }
+  }
+}
+
+/**
+ * Deletes every Blob no retained Build references. Retained: the N highest
+ * stored build numbers plus the Current Manifest's build, so a rollback
+ * target can never lose its Blobs. Only keys under the Blob prefix are ever
+ * deleted; stored Manifests are never touched. Do not run it while a
+ * release or patch is in flight: Blobs are uploaded before the Manifest that
+ * references them exists, and gc would see them as unreferenced.
  */
 export async function gc(ctx: Ctx, args: GcArgs): Promise<GcResult> {
   const log = logger(ctx)
   if (!Number.isSafeInteger(args.keep) || args.keep < 1) throw new Error('gc --keep needs a positive integer')
+  assertBlobPrefixIsolated(ctx.cfg)
   const current = await loadManifest(ctx)
   if (!current) throw new Error('no manifest published')
 
-  const builds: number[] = []
-  for (const obj of await ctx.store.list(ctx.cfg.manifestsPrefix)) {
-    const m = /^(\d+)\.json$/.exec(obj.key.slice(ctx.cfg.manifestsPrefix.length))
-    if (m) builds.push(Number(m[1]))
-  }
-  builds.sort((a, b) => b - a)
+  const builds = await storedBuildNumbers(ctx)
   const kept = builds.slice(0, args.keep)
   if (!kept.includes(current.build)) kept.push(current.build)
 
   const referenced = new Set(current.files.map((f) => f.sha256))
   for (const build of kept) {
     if (build === current.build) continue
-    const text = await ctx.store.getText(storedManifestKey(ctx, build))
-    if (text === null) throw new Error(`stored manifest for build ${build} vanished during gc`)
-    for (const f of manifestSchema.parse(JSON.parse(text)).files) referenced.add(f.sha256)
+    const stored = await loadStoredManifest(ctx, build)
+    if (!stored) throw new Error(`stored manifest for build ${build} vanished during gc`)
+    for (const f of stored.manifest.files) referenced.add(f.sha256)
   }
 
   const deleted: string[] = []
   let retained = 0
   for (const obj of await ctx.store.list(ctx.cfg.objectsPrefix)) {
+    // list() promises this already; re-checked because this is the one destructive path
     if (!obj.key.startsWith(ctx.cfg.objectsPrefix)) continue
     if (referenced.has(obj.key.slice(ctx.cfg.objectsPrefix.length))) {
       retained++
