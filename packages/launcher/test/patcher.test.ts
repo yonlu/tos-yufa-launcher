@@ -310,10 +310,33 @@ describe('Install into an empty folder (publish CLI → dev server → patcher �
     )
     server.requests.length = 0
 
-    const checked = await makePatcher().check()
+    const events: PatcherProgressEvent[] = []
+    const checked = await makePatcher({ onProgress: (e) => events.push(e) }).check()
     expect(checked.state).toBe('up-to-date')
     expect(requestedPaths(server.requests, manifest)).toEqual([])
-    expect((await readRecord()).completed).toBe(true)
+    expect(events.some((e) => e.phase === 'hashing' && e.file === 'data/bg.ipf')).toBe(true)
+    const healed = await readRecord()
+    expect(healed.completed).toBe(true)
+    expect(healed.files.find((f) => f.path === 'data/bg.ipf')).toEqual(forgotten)
+  })
+
+  it('a large file the record forgot is hashed once, recorded, then trusted by its stat', async () => {
+    await publishTree({ sizes: { 'data/bg.ipf': HASH_ON_CHECK_MAX_BYTES + 1 } })
+    await installFresh()
+    const record = await readRecord()
+    await writeFile(
+      join(gameDir, INSTALL_RECORD_FILE),
+      JSON.stringify({ ...record, files: record.files.filter((f) => f.path !== 'data/bg.ipf') }),
+    )
+
+    const first: PatcherProgressEvent[] = []
+    expect((await makePatcher({ onProgress: (e) => first.push(e) }).check()).state).toBe('up-to-date')
+    expect(first.some((e) => e.phase === 'hashing' && e.file === 'data/bg.ipf')).toBe(true)
+    expect(await readRecord()).toEqual(record)
+
+    const second: PatcherProgressEvent[] = []
+    expect((await makePatcher({ onProgress: (e) => second.push(e) }).check()).state).toBe('up-to-date')
+    expect(second.some((e) => e.file === 'data/bg.ipf')).toBe(false)
   })
 
   it('cancel keeps the .part and the partial record; the next run resumes with Range', async () => {
@@ -350,14 +373,21 @@ describe('Install into an empty folder (publish CLI → dev server → patcher �
     await put(gameDir, EXE, 'old stub client')
     await put(gameDir, LAYOUT, '<layout mine="1"/>')
 
+    await put(gameDir, 'release/a.dll', published.get('release/a.dll')!) // one file already right
+
     const p = makePatcher()
     const checked = await p.check()
     expect(checked.state).toBe('update-available')
-    expect(checked.plan!.fileCount).toBe(6) // every Managed File; the layout is already there
+    expect(checked.plan!.fileCount).toBe(5) // every other Managed File; the layout is already there
+    expect((await readRecord()).files.map((f) => f.path)).toEqual(['release/a.dll'])
     expect((await p.update()).state).toBe('ready')
     expect((await readFile(local(EXE))).equals(published.get(EXE)!)).toBe(true)
     expect(await readFile(local(LAYOUT), 'utf8')).toBe('<layout mine="1"/>')
-    expect((await readRecord()).seeded).toEqual([])
+    const record = await readRecord()
+    expect(record.seeded).toEqual([])
+    expect(record.files.map((f) => f.path).sort()).toEqual(
+      [...published.keys()].filter((k) => k !== LAYOUT).sort(),
+    )
   })
 
   it('a corrupt Install Record counts as absent and triggers a not-installed on an otherwise empty folder', async () => {
@@ -451,6 +481,7 @@ describe('Updating an installed Build', () => {
     expect(checked.state).toBe('up-to-date')
     expect(requestedPaths(server.requests, manifest)).toEqual([])
     expect(await readFile(local(LAYOUT), 'utf8')).toBe('<layout mine="1"/>')
+    expect((await readRecord()).build).toBe(2)
 
     // the game (or the player) removes it: still not re-seeded, by check or by Repair
     await fs.rm(local(LAYOUT))
@@ -582,6 +613,17 @@ describe('Updating an installed Build', () => {
     const ev = await p.install()
     expect(ev.state).toBe('error')
     expect(ev.error?.code).toBe('game-running')
+
+    await installFresh()
+    const next = join(staging, patchFileName(REV_B + 1))
+    await writeFile(next, randomBytes(1024))
+    await cliPatch(cliCtx, { files: [next] })
+    const p2 = makePatcher({ isGameRunning: async () => true })
+    expect((await p2.check()).state).toBe('update-available')
+    const ev2 = await p2.update()
+    expect(ev2.state).toBe('error')
+    expect(ev2.error?.code).toBe('game-running')
+    expect(existsSync(local(`patch/${patchFileName(REV_B + 1)}`))).toBe(false)
   })
 
   it('reports manifest-cdn-desync when a listed Blob is missing (after one auto re-check)', async () => {
@@ -595,9 +637,11 @@ describe('Updating an installed Build', () => {
 
     const p = makePatcher()
     await p.check()
+    server.requests.length = 0
     const ev = await p.update()
     expect(ev.state).toBe('error')
     expect(ev.error?.code).toBe('manifest-cdn-desync')
+    expect(server.requests.filter((r) => r.path.startsWith('/manifest.json')).length).toBe(1)
   })
 
   it('with parallel downloads, a higher archive finishing before a failed lower one does not advance the revision past the gap', async () => {

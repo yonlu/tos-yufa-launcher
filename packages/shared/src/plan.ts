@@ -31,12 +31,12 @@ export interface ComputePlanArgs {
  */
 export const HASH_ON_CHECK_MAX_BYTES = 16 * 1024 * 1024
 
-export interface FilesToHashArgs {
+/** `check`: the every-start verification; `repair`: deep verification of every Managed File. */
+export type CheckMode = 'check' | 'repair'
+
+export interface FilesToHashArgs extends Pick<ComputePlanArgs, 'record' | 'local'> {
   manifest: Pick<Manifest, 'files'>
-  record: InstallRecord | null
-  local: ReadonlyMap<string, LocalFileStat>
-  /** `check`: the every-start verification; `repair`: deep verification of every Managed File. */
-  mode: 'check' | 'repair'
+  mode: CheckMode
 }
 
 /**
@@ -64,6 +64,13 @@ export interface InstallPlan {
   toSeed: ManifestFile[]
   /** Recorded paths the manifest no longer lists; nothing else is ever deleted. */
   toDelete: string[]
+  /**
+   * Managed Files trusted by their content hash that the Install Record
+   * alone could not have trusted (unknown, or known with a stale stat or
+   * hash), in manifest order. Recording them keeps the next check cheap and
+   * makes them deletable when a later Build drops them.
+   */
+  toRecord: ManifestFile[]
   /** What release.revision.txt must say when the plan is fully applied. */
   targetRevision: number
   /** Bytes of toDownload plus toSeed. */
@@ -102,21 +109,24 @@ export function computePlan(args: ComputePlanArgs): InstallPlan {
 
   const download: ManifestFile[] = []
   const seed: ManifestFile[] = []
+  const toRecord: ManifestFile[] = []
   for (const entry of args.manifest.files) {
     const local = args.local.get(entry.path)
     if (entry.class === 'seed-once') {
       if (!local && !seeded.has(entry.path)) seed.push(entry)
       continue
     }
-    const actual = hashed.get(entry.path)
-    if (actual !== undefined) {
-      if (actual !== entry.sha256) download.push(entry)
-      continue
-    }
     const rec = recorded.get(entry.path)
-    const trusted =
+    const trustedByRecord =
       !!local && !!rec && rec.sha256 === entry.sha256 && rec.size === local.size && rec.mtimeMs === local.mtimeMs
-    if (!trusted) download.push(entry)
+    const actual = hashed.get(entry.path)
+    if (actual === undefined) {
+      if (!trustedByRecord) download.push(entry)
+    } else if (actual !== entry.sha256) {
+      download.push(entry)
+    } else if (!trustedByRecord) {
+      toRecord.push(entry)
+    }
   }
 
   const manifestPaths = new Set(args.manifest.files.map((f) => f.path))
@@ -128,6 +138,7 @@ export function computePlan(args: ComputePlanArgs): InstallPlan {
     toDownload,
     toSeed,
     toDelete,
+    toRecord,
     targetRevision: args.manifest.revision,
     totalBytes: [...toDownload, ...toSeed].reduce((s, f) => s + f.size, 0),
   }

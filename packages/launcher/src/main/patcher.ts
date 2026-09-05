@@ -6,6 +6,7 @@ import {
   emptyInstallRecord,
   filesToHash,
   manifestSchema,
+  type CheckMode,
   orderDownloads,
   patchArchiveRevision,
   type ErrorInfo,
@@ -66,9 +67,6 @@ class PatcherError extends Error {
 /** Thrown out of a hashing loop when cancel() fires; the run ends idle. */
 class Cancelled extends Error {}
 
-/** How deep a check verifies content: see `filesToHash` in @yufa/shared. */
-type CheckMode = 'check' | 'repair'
-
 /** Everything a check learned: what is current, what is installed, what remains. */
 interface Situation {
   manifest: Manifest
@@ -128,7 +126,10 @@ export class Patcher {
     try {
       situation = await this.assess(await this.fetchManifest(), mode)
     } catch (err) {
-      if (err instanceof Cancelled) return this.setState({ state: 'idle' })
+      if (err instanceof Cancelled) {
+        this.situation = null
+        return this.setState({ state: 'idle' })
+      }
       return this.fail(err instanceof PatcherError ? err.info : { code: 'offline', message: (err as Error).message })
     }
     return this.settle(situation)
@@ -179,14 +180,29 @@ export class Patcher {
 
   /**
    * Publishes what a check found. An up-to-date install is left alone,
-   * except for the two files that may have drifted: release.revision.txt
-   * and the record's build/completed flags.
+   * except for what may have drifted: release.revision.txt, the record's
+   * build/completed flags, and files the record did not know but whose
+   * content proved right (a crash between rename and record write, or a
+   * located existing install) — those are written into the record so the
+   * next check can trust their stat instead of hashing them again.
    */
   private async settle(situation: Situation): Promise<PatcherStateEvent> {
-    this.situation = situation
-    const { manifest, record, plan, localRevision, notInstalled } = situation
+    const { manifest, plan, localRevision, notInstalled } = situation
     const summary = this.summary(plan, localRevision)
-    if (notInstalled) return this.setState({ state: 'not-installed', plan: summary })
+    if (notInstalled) {
+      this.situation = situation
+      return this.setState({ state: 'not-installed', plan: summary })
+    }
+    let record = situation.record
+    if (plan.toRecord.length) {
+      record = record ?? emptyInstallRecord(manifest.build)
+      for (const f of plan.toRecord) {
+        const st = await statGameFile(this.paths, f.path)
+        record = withInstalledFile(record, { path: f.path, size: st.size, mtimeMs: st.mtimeMs, sha256: f.sha256 })
+      }
+      await writeInstallRecord(this.paths, record)
+    }
+    this.situation = { ...situation, record }
     if (!plan.toDownload.length && !plan.toSeed.length && !plan.toDelete.length) {
       if (localRevision !== plan.targetRevision) await writeLocalRevision(this.paths, plan.targetRevision)
       if (record && (!record.completed || record.build !== manifest.build)) {

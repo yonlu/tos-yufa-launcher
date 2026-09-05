@@ -69,6 +69,7 @@ describe('computePlan', () => {
     expect(plan.toDownload.map((f) => f.path)).toEqual([DLL.path, EXE.path, P1.path, P2.path, BG.path])
     expect(plan.toSeed).toEqual([LAYOUT])
     expect(plan.toDelete).toEqual([])
+    expect(plan.toRecord).toEqual([])
     expect(plan.targetRevision).toBe(1116002)
     expect(plan.totalBytes).toBe(100 + 50 + 9000 + 20 + 500 + 300)
   })
@@ -112,9 +113,31 @@ describe('computePlan', () => {
       ]),
     })
     expect(plan.toDownload).toEqual([EXE])
+    expect(plan.toRecord).toEqual([])
 
     const noRecord = computePlan({ manifest, record: null, local: localOf([EXE]), hashed: new Map([[EXE.path, EXE.sha256]]) })
     expect(noRecord.toDownload.map((f) => f.path)).not.toContain(EXE.path)
+  })
+
+  it('a file trusted by its hash that the record could not have trusted is reported for recording', () => {
+    const record = recordOf([DLL, BG]) // EXE unknown; BG recorded with a stale stat
+    const local = localOf([EXE, DLL, BG])
+    local.set(BG.path, { size: BG.size, mtimeMs: 2000 })
+    const plan = computePlan({
+      manifest,
+      record,
+      local,
+      hashed: new Map([
+        [EXE.path, EXE.sha256],
+        [DLL.path, DLL.sha256], // already trusted by the record: nothing to add
+        [BG.path, BG.sha256],
+      ]),
+    })
+    expect(plan.toRecord.map((f) => f.path)).toEqual([BG.path, EXE.path])
+    expect(plan.toDownload.map((f) => f.path)).toEqual([P1.path, P2.path])
+
+    const noRecord = computePlan({ manifest, record: null, local: localOf([EXE]), hashed: new Map([[EXE.path, EXE.sha256]]) })
+    expect(noRecord.toRecord).toEqual([EXE])
   })
 
   it('deletes only recorded paths the manifest dropped, sorted by path', () => {
