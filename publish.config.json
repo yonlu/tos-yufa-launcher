@@ -3,9 +3,13 @@
   "endpoint": "https://REPLACE_WITH_ACCOUNT_ID.r2.cloudflarestorage.com",
   "publicBaseUrl": "https://patch.REPLACE_WITH_DOMAIN/",
   "manifestKey": "manifest.json",
-  "patchesPrefix": "patches/",
+  "manifestsPrefix": "manifests/",
+  "objectsPrefix": "objects/",
+  "redistPrefix": "redist/",
   "newsKey": "news/news.json",
   "newsImagesPrefix": "news/img/",
   "launcherPrefix": "launcher/",
-  "grandfatherRevision": 234929
+  "excludes": ["release/patch/", "_CommonRedist/"],
+  "seedOnce": ["release/uilayout.xml", "release/hotkey_operator.xml", "release/hotkey_user.xml"],
+  "hashCache": ".yufa-hash-cache.json"
 }

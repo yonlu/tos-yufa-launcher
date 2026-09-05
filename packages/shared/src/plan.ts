@@ -1,4 +1,19 @@
-import { GRANDFATHER_REVISION, parsePatchFileName, type Manifest, type ManifestFile } from './manifest'
+import { parsePatchFileName } from './manifest'
+
+/**
+ * Highest revision that ships with the base client install. The patch-only
+ * plan below ignores archives at or below this line. Superseded by the
+ * Install Record plan (issue #4); kept only until that lands.
+ */
+export const GRANDFATHER_REVISION = 234929
+
+/** A patch archive as the patch-only plan sees it (name + revision + size + hash). */
+export interface PatchEntry {
+  name: string
+  revision: number
+  size: number
+  sha256: string
+}
 
 /** A pattern-matched file found in the local patch\ directory. */
 export interface LocalPatchFile {
@@ -7,8 +22,8 @@ export interface LocalPatchFile {
 }
 
 export interface UpdatePlan {
-  /** Manifest entries to fetch, ascending by revision. */
-  toDownload: ManifestFile[]
+  /** Patch entries to fetch, ascending by revision. */
+  toDownload: PatchEntry[]
   /** Local file names to delete (managed files absent from the manifest — rollback). */
   toDelete: string[]
   /** What release.revision.txt must say when the plan is fully applied. */
@@ -19,7 +34,8 @@ export interface UpdatePlan {
 }
 
 export interface ComputePlanArgs {
-  manifest: Pick<Manifest, 'files' | 'revision'>
+  /** Patch archives of the Current Manifest, ascending by revision, plus its revision. */
+  manifest: { files: PatchEntry[]; revision: number }
   /** Pattern-matched local files (any revision; grandfathered ones are ignored here). */
   localFiles: LocalPatchFile[]
   /** Parsed release.revision.txt, or null when missing/garbage. */

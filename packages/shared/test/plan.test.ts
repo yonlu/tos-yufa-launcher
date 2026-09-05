@@ -4,10 +4,10 @@ import {
   GRANDFATHER_REVISION as GF,
   patchFileName,
   type LocalPatchFile,
-  type ManifestFile,
+  type PatchEntry,
 } from '../src/index'
 
-function entry(revision: number, size = 1000): ManifestFile {
+function entry(revision: number, size = 1000): PatchEntry {
   return { name: patchFileName(revision), revision, size, sha256: 'a'.repeat(64) }
 }
 

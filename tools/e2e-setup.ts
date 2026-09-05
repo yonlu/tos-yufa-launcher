@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { patch } from '../packages/publish-cli/src/commands'
-import type { PublishConfig } from '../packages/publish-cli/src/config'
+import { DEFAULT_EXCLUDES, DEFAULT_SEED_ONCE, type PublishConfig } from '../packages/publish-cli/src/config'
 import { LocalDirStore } from '../packages/publish-cli/src/store'
 import { GRANDFATHER_REVISION, patchFileName } from '../packages/shared/src/index'
 
@@ -42,11 +42,15 @@ const cfg: PublishConfig = {
   endpoint: 'https://example.invalid',
   publicBaseUrl: url,
   manifestKey: 'manifest.json',
-  patchesPrefix: 'patches/',
+  manifestsPrefix: 'manifests/',
+  objectsPrefix: 'objects/',
+  redistPrefix: 'redist/',
   newsKey: 'news/news.json',
   newsImagesPrefix: 'news/img/',
   launcherPrefix: 'launcher/',
-  grandfatherRevision: GRANDFATHER_REVISION,
+  excludes: [...DEFAULT_EXCLUDES],
+  seedOnce: [...DEFAULT_SEED_ONCE],
+  hashCache: join(base, 'hash-cache.json'),
 }
 const store = new LocalDirStore(storeDir)
 

@@ -5,8 +5,10 @@ import {
   computePlan,
   manifestSchema,
   parsePatchFileName,
+  patchArchiveRevision,
   type ErrorInfo,
   type Manifest,
+  type PatchEntry,
   type PatcherProgressEvent,
   type PatcherStateEvent,
   type PlanSummary,
@@ -40,6 +42,21 @@ export interface PatcherDeps {
   onProgress?: (e: PatcherProgressEvent) => void
   engineOptions?: Partial<EngineOptions>
   manifestTimeoutMs?: number
+}
+
+/**
+ * The patch-only view of a v2 Manifest: its Patch archives, ascending by
+ * revision. Everything else the Manifest lists is ignored until the
+ * Install Record plan lands (issue #4).
+ */
+function patchEntries(manifest: Manifest): PatchEntry[] {
+  const out: PatchEntry[] = []
+  for (const f of manifest.files) {
+    const revision = patchArchiveRevision(f.path)
+    if (revision === null) continue
+    out.push({ name: f.path.slice(f.path.lastIndexOf('/') + 1), revision, size: f.size, sha256: f.sha256 })
+  }
+  return out.sort((a, b) => a.revision - b.revision)
 }
 
 class PatcherError extends Error {
@@ -94,7 +111,11 @@ export class Patcher {
       scanPatchDir(this.paths),
       readLocalRevision(this.paths),
     ])
-    const plan = computePlan({ manifest, localFiles, localRevision })
+    const plan = computePlan({
+      manifest: { files: patchEntries(manifest), revision: manifest.revision },
+      localFiles,
+      localRevision,
+    })
     this.manifest = manifest
     this.plan = plan
 
@@ -130,7 +151,7 @@ export class Patcher {
       }
 
       const jobs: DownloadJob[] = plan.toDownload.map((f) => ({
-        url: manifest.baseUrl + f.name,
+        url: manifest.blobBaseUrl + f.sha256,
         destDir: this.paths.patchDir,
         name: f.name,
         size: f.size,
@@ -181,7 +202,7 @@ export class Patcher {
 
     this.abort = new AbortController()
     this.setState({ state: 'repairing' })
-    const candidates = manifest.files.filter((f) =>
+    const candidates = patchEntries(manifest).filter((f) =>
       localFiles.some((l) => l.name === f.name && l.size === f.size),
     )
     const overallTotal = candidates.reduce((s, f) => s + f.size, 0)
@@ -209,7 +230,12 @@ export class Patcher {
       this.abort = null
     }
 
-    const plan = computePlan({ manifest, localFiles, localRevision, corruptNames })
+    const plan = computePlan({
+      manifest: { files: patchEntries(manifest), revision: manifest.revision },
+      localFiles,
+      localRevision,
+      corruptNames,
+    })
     this.manifest = manifest
     this.plan = plan
 
@@ -261,7 +287,7 @@ export class Patcher {
 
   private async quickVerify(manifest: Manifest): Promise<string[]> {
     const problems: string[] = []
-    for (const f of manifest.files) {
+    for (const f of patchEntries(manifest)) {
       const st = await fs.stat(join(this.paths.patchDir, f.name)).catch(() => null)
       if (!st) problems.push(`${f.name} missing`)
       else if (st.size !== f.size) problems.push(`${f.name} has ${st.size} bytes, expected ${f.size}`)

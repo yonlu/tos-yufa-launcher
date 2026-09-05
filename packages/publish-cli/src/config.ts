@@ -2,16 +2,37 @@ import { readFileSync, existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { z } from 'zod'
 
+/** Globs dropped from every release unless the operator overrides `excludes`. */
+export const DEFAULT_EXCLUDES: readonly string[] = ['release/patch/', '_CommonRedist/']
+
+/** Files the launcher writes once and never touches again (the game rewrites them). */
+export const DEFAULT_SEED_ONCE: readonly string[] = [
+  'release/uilayout.xml',
+  'release/hotkey_operator.xml',
+  'release/hotkey_user.xml',
+]
+
 const configSchema = z.object({
   bucket: z.string().min(1),
   endpoint: z.string().url(),
   publicBaseUrl: z.string().url().endsWith('/'),
-  manifestKey: z.string().min(1),
-  patchesPrefix: z.string().endsWith('/'),
-  newsKey: z.string().min(1),
-  newsImagesPrefix: z.string().endsWith('/'),
-  launcherPrefix: z.string().endsWith('/'),
-  grandfatherRevision: z.number().int().nonnegative(),
+  manifestKey: z.string().min(1).default('manifest.json'),
+  manifestsPrefix: z.string().endsWith('/').default('manifests/'),
+  objectsPrefix: z.string().endsWith('/').default('objects/'),
+  redistPrefix: z.string().endsWith('/').default('redist/'),
+  newsKey: z.string().min(1).default('news/news.json'),
+  newsImagesPrefix: z.string().endsWith('/').default('news/img/'),
+  launcherPrefix: z.string().endsWith('/').default('launcher/'),
+  /**
+   * Globs, game-relative with forward slashes: `*`/`?` stay inside one path
+   * segment, `**` spans segments, a trailing `/` means the whole subtree, and
+   * a pattern with no `/` at all matches that file name at any depth.
+   */
+  excludes: z.array(z.string().min(1)).default([...DEFAULT_EXCLUDES]),
+  /** Game-relative paths published as Seed-once instead of Managed. */
+  seedOnce: z.array(z.string().min(1)).default([...DEFAULT_SEED_ONCE]),
+  /** Hash cache file; relative paths resolve against the config file's directory. */
+  hashCache: z.string().min(1).default('.yufa-hash-cache.json'),
 })
 
 export type PublishConfig = z.infer<typeof configSchema>
@@ -32,5 +53,6 @@ export function loadConfig(explicitPath?: string): PublishConfig {
       dir = parent
     }
   }
-  return configSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+  const cfg = configSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+  return { ...cfg, hashCache: resolve(dirname(resolve(path)), cfg.hashCache) }
 }

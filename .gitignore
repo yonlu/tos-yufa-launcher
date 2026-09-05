@@ -8,3 +8,4 @@ coverage/
 *.tsbuildinfo
 release-builds/
 e2e-sandbox/
+.yufa-hash-cache.json

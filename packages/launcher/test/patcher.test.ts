@@ -1,10 +1,11 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, promises as fs } from 'node:fs'
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { GRANDFATHER_REVISION as GF, patchFileName, type PatcherProgressEvent } from '@yufa/shared'
+import { DEFAULT_EXCLUDES, DEFAULT_SEED_ONCE } from '../../publish-cli/src/config'
 import { patch as cliPatch, rollback as cliRollback, type Ctx } from '../../publish-cli/src/commands'
 import type { PublishConfig } from '../../publish-cli/src/config'
 import { LocalDirStore } from '../../publish-cli/src/store'
@@ -38,11 +39,15 @@ beforeEach(async () => {
     endpoint: 'https://example.invalid',
     publicBaseUrl: `${server.url}/`,
     manifestKey: 'manifest.json',
-    patchesPrefix: 'patches/',
+    manifestsPrefix: 'manifests/',
+    objectsPrefix: 'objects/',
+    redistPrefix: 'redist/',
     newsKey: 'news/news.json',
     newsImagesPrefix: 'news/img/',
     launcherPrefix: 'launcher/',
-    grandfatherRevision: GF,
+    excludes: [...DEFAULT_EXCLUDES],
+    seedOnce: [...DEFAULT_SEED_ONCE],
+    hashCache: join(staging, 'hash-cache.json'),
   }
   store = new LocalDirStore(storeDir)
   cliCtx = { cfg, store, log: () => {} }
@@ -52,14 +57,19 @@ afterEach(async () => {
   await server.close()
 })
 
+/** Publishes one Build with the given archives; returns each archive's sha256 by revision. */
 async function publishRevisions(revisions: number[], size = 32 * 1024, ctx: Ctx = cliCtx) {
   const paths: string[] = []
+  const hashes = new Map<number, string>()
   for (const rev of revisions) {
     const p = join(staging, patchFileName(rev))
-    await writeFile(p, randomBytes(size))
+    const content = randomBytes(size)
+    await writeFile(p, content)
+    hashes.set(rev, createHash('sha256').update(content).digest('hex'))
     paths.push(p)
   }
   await cliPatch(ctx, { files: paths })
+  return hashes
 }
 
 function makePatcher(over: Partial<PatcherDeps> = {}) {
@@ -91,7 +101,7 @@ describe('Patcher integration (publish CLI → dev server → patcher → fixtur
     expect(states).toEqual(['checking', 'update-available', 'updating', 'verifying', 'ready'])
 
     const local = await readFile(join(gameDir, 'patch', patchFileName(GF + 1)))
-    const published = await readFile(join(storeDir, 'patches', patchFileName(GF + 1)))
+    const published = await readFile(join(staging, patchFileName(GF + 1)))
     expect(local.equals(published)).toBe(true)
   })
 
@@ -114,12 +124,13 @@ describe('Patcher integration (publish CLI → dev server → patcher → fixtur
   })
 
   it('server-side rollback deletes local files and lowers the revision', async () => {
-    await publishRevisions([GF + 1, GF + 2])
+    await publishRevisions([GF + 1]) // build 1
+    await publishRevisions([GF + 2]) // build 2
     let p = makePatcher()
     await p.check()
     await p.update()
 
-    await cliRollback(cliCtx, GF + 1)
+    await cliRollback(cliCtx, 1)
     p = makePatcher()
     expect((await p.check()).state).toBe('update-available')
     const done = await p.update()
@@ -152,10 +163,10 @@ describe('Patcher integration (publish CLI → dev server → patcher → fixtur
   })
 
   it('a failed file leaves the game at the last good revision, then recovers', async () => {
-    await publishRevisions([GF + 1, GF + 2])
+    const hashes = await publishRevisions([GF + 1, GF + 2])
     const p = makePatcher({ engineOptions: { retries: 0, backoffMs: () => 1, progressIntervalMs: 5 } })
     await p.check()
-    server.corruptNext(patchFileName(GF + 2))
+    server.corruptNext(hashes.get(GF + 2)!)
 
     const done = await p.update()
     expect(done.state).toBe('error')
@@ -203,8 +214,8 @@ describe('Patcher integration (publish CLI → dev server → patcher → fixtur
   })
 
   it('reports manifest-cdn-desync when a listed object is missing (after one auto re-check)', async () => {
-    await publishRevisions([GF + 1])
-    await fs.rm(join(storeDir, 'patches', patchFileName(GF + 1)))
+    const hashes = await publishRevisions([GF + 1])
+    await fs.rm(join(storeDir, 'objects', hashes.get(GF + 1)!))
 
     const p = makePatcher()
     await p.check()
@@ -235,7 +246,7 @@ describe('Patcher integration (publish CLI → dev server → patcher → fixtur
       await p2.check()
       expect((await p2.update()).state).toBe('ready')
       expect(await readLocalRevision(gamePaths(gameDir))).toBe(GF + 1)
-      expect(slowServer.requests.some((r) => r.range && r.path.endsWith('.ipf'))).toBe(true)
+      expect(slowServer.requests.some((r) => r.range && r.path.startsWith('/objects/'))).toBe(true)
     } finally {
       await slowServer.close()
     }
