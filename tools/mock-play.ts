@@ -2,24 +2,22 @@
 //
 //   npm run mock [-- --count 3 --size 10000000 --throttle 800000 --keep --exe <path>]
 //
-// Patching runs against a disposable sandbox game dir (fresh every run, so the update
-// is always pending and the real install is never written to), served throttled so the
-// progress bar is watchable. Clicking Play launches the REAL client via the
+// Installing runs against a disposable, empty sandbox game dir (fresh every run, so the
+// install panel always shows and the real install is never written to), served throttled
+// so the progress bar is watchable. Clicking Play launches the REAL client via the
 // YUFA_LAUNCH_EXE hook (default: the real install's Yuka.exe; falls back to a dxdiag
-// copy inside the sandbox when the real exe isn't on this machine).
+// copy kept outside the sandbox game dir when the real exe isn't on this machine).
 // Ctrl+C (or closing the launcher) tears everything down.
 import { spawn, spawnSync } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { argOption } from './cli'
 import { createDevServer } from './dev-server'
 
 const REAL_EXE = 'C:\\tree of savior servers\\Classic\\release\\Yuka.exe'
 
 const args = process.argv.slice(2)
-const opt = (name: string, fallback: string): string => {
-  const i = args.indexOf(`--${name}`)
-  return i >= 0 && args[i + 1] ? args[i + 1]! : fallback
-}
+const opt = (name: string, fallback: string): string => argOption(args, name, fallback)
 const has = (name: string): boolean => args.includes(`--${name}`)
 
 const base = resolve(opt('base', './e2e-sandbox'))
@@ -47,7 +45,9 @@ try {
   await fs.access(launchExe)
 } catch {
   console.warn(`real client not found at ${launchExe} — Play will open dxdiag as a stand-in`)
-  launchExe = join(base, 'game', 'release', 'Yuka.exe')
+  // outside game/: a client exe in there would turn the empty folder into a "resume" install
+  launchExe = join(base, 'standin', 'Yuka.exe')
+  await fs.mkdir(dirname(launchExe), { recursive: true })
   await fs.copyFile('C:\\Windows\\System32\\dxdiag.exe', launchExe)
 }
 
@@ -80,7 +80,7 @@ setInterval(() => {
 }, 500).unref()
 
 // 5. launcher: patches into the sandbox, Play spawns the real client
-console.log(`starting launcher — click Atualizar, watch the bar, then Jogar (launches ${launchExe})`)
+console.log(`starting launcher — click Instalar, watch the bar, then Jogar (launches ${launchExe})`)
 const dev = spawn('npm', ['run', 'dev'], {
   stdio: 'inherit',
   shell: true,

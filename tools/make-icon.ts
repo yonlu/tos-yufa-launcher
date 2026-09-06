@@ -29,5 +29,5 @@ const pngs = await Promise.all(sizes.map((s) => sharp(squared).resize(s, s).png(
 
 await mkdir(outDir, { recursive: true })
 await writeFile(join(outDir, 'icon.ico'), await pngToIco(pngs))
-await writeFile(join(outDir, 'icon.png'), pngs[0])
+await writeFile(join(outDir, 'icon.png'), pngs[0]!)
 console.log(`wrote ${outDir}/icon.ico (+ icon.png) from ${source} (trimmed ${width}x${height})`)

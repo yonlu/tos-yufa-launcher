@@ -8,17 +8,69 @@ Launcher + sistema de publicação de patches para o servidor Yufa | ToS - Class
 - `packages/launcher` — app Electron (electron-vite + React). UI do jogador: verificar → baixar → jogar.
 - `packages/publish-cli` — CLI do admin (`npm run yufa-publish`): release / patch / rollback / news / verify (`--mirror <pasta>` compara hashes com a pasta local) / gc (`--keep N` apaga Blobs que nenhum dos N Builds mais recentes nem o atual referencia; nunca apaga Manifests) / redist push (`--dir <pasta>` sobe os instaladores de runtime e escreve `redist/index.json` por último) / launcher.
 - `tools/dev-server.ts` — servidor estático local com suporte a HTTP Range para testes E2E.
+- `tools/e2e-setup.ts` / `tools/e2e-smoke.ts` — sandbox E2E local: árvore de jogo falsa publicada como Build, e o ensaio automático (instalar → atualizar → rollback) com o launcher empacotado. Ver [Sandbox E2E local](#sandbox-e2e-local).
 
 ## Comandos
 
 ```
 npm install                 # instala tudo (workspaces)
 npm test                    # unit + integration tests (vitest)
+npm run typecheck           # tsc em shared, publish-cli, launcher e tools
 npm run dev                 # launcher em modo dev
-npm run dist                # build NSIS (electron-builder)
+npm run dist                # build NSIS (electron-builder) → packages/launcher/release-builds
 npm run yufa-publish -- …   # CLI de publicação
 npm run dev-server          # servidor de patches local
+npm run e2e-setup -- …      # monta/publica o sandbox E2E (--bump publica o Build seguinte)
+npm run e2e                 # ensaio completo com o launcher empacotado (precisa de npm run dist)
+npm run mock                # launcher em dev contra o sandbox, download lento, Jogar abre o cliente real
 ```
+
+## Sandbox E2E local
+
+Tudo que o operador faria contra o R2 dá para ensaiar contra uma pasta local servida pelo `dev-server`.
+
+```
+npm run e2e-setup -- --base ./e2e-sandbox        # Build 1: árvore falsa → release → ./e2e-sandbox/store
+npm run dev-server -- --root ./e2e-sandbox/store --port 8787
+```
+
+O sandbox contém:
+
+- `tree/` — a pasta de jogo falsa de onde os Builds saem (o Mirror, no vocabulário do `CONTEXT.md`): `data\`, `patch\` (2 archives de 3 MB por padrão; `--count`, `--size`), `release\` com `Yuka.exe` de mentira, `a.dll`, `uilayout.xml` (Seed-once) **e** o lixo que o hard guard descarta (`user.xml`, `release.revision.txt`, `screenshot\`, `log_Client\`) mais `release\patch\` (excluído pela config). Confira no `store/manifest.json` que nada disso foi publicado.
+- `store/` — o layout exato do bucket (`manifest.json`, `manifests/`, `objects/`, `news/`).
+- `game/` — pasta **vazia** para o launcher instalar.
+- `publish.config.json` — a config do CLI apontando para o dev-server, para rollback/patch/verify à mão.
+
+Aponte o launcher (dev ou empacotado) para o sandbox com variáveis de ambiente:
+
+| Variável | Efeito |
+| --- | --- |
+| `YUFA_MANIFEST_URL` | `http://127.0.0.1:8787/manifest.json`; news e `redist/index.json` derivam dela |
+| `YUFA_GAME_DIR` | a pasta do jogo (vazia → painel de instalação) |
+| `YUFA_USERDATA` | settings e logs isolados por execução |
+| `YUFA_AUTO=update` / `play` | instala/atualiza sozinho; `play` também clica Jogar |
+| `YUFA_LAUNCH_EXE` | executável que Jogar abre (cliente real fora do sandbox) |
+| `YUFA_SCREENSHOT` (+ `_DELAY` ms) | captura a janela nesse caminho e sai — o smoke de screenshot |
+| `YUFA_REDIST_INDEX_URL`, `YUFA_LAUNCHER_FEED_URL` | índices alternativos de runtimes e de self-update |
+
+Ciclo completo à mão:
+
+```
+npm run e2e-setup -- --base ./e2e-sandbox --bump          # Build 2: muda release\a.dll e adiciona 1 patch archive
+npm run yufa-publish -- --config e2e-sandbox/publish.config.json --local-out e2e-sandbox/store rollback 1
+npm run yufa-publish -- --config e2e-sandbox/publish.config.json --local-out e2e-sandbox/store verify --mirror e2e-sandbox/tree
+```
+
+Ou tudo de uma vez, com o launcher empacotado, cada etapa fotografada em `e2e-sandbox/shots/` e conferida pelo Install Record e pelos hashes na pasta do jogo:
+
+```
+npm run dist
+npm run e2e        # painel de instalação → instala Build 1 → atualiza para Build 2 → rollback 1
+```
+
+## Launcher (instalação e self-update)
+
+Produto **Yufa Launcher**, publicado por **Hyped Games**: instalador NSIS one-click por usuário, sem UAC, em `C:\Hyped Games\Yufa Launcher` (unidade do sistema; `packages/launcher/build/installer.nsh`), atalho no menu Iniciar em `Hyped Games`. O `appId` (`br.com.yufa.launcher`) e o feed `launcher/latest.yml` não mudaram: um launcher já instalado continua se atualizando **na pasta onde está** — o instalador só escolhe a pasta nova quando não encontra instalação anterior no registro. Mover uma instalação antiga é desinstalar e instalar de novo (uma vez).
 
 ## Contrato de patch (cliente ToS)
 
