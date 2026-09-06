@@ -2,6 +2,7 @@ import { createReadStream, promises as fs } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join, normalize, resolve } from 'node:path'
+import { argOption, isMainModule } from './cli'
 
 /**
  * Static file server for local patch-flow testing: honors HTTP Range
@@ -144,16 +145,11 @@ export async function createDevServer(opts: DevServerOptions): Promise<DevServer
 }
 
 // CLI mode: npm run dev-server -- --root <dir> [--port 8787] [--throttle <bytes/s>]
-const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/').split('/').pop()!)
-if (isMain) {
+if (isMainModule(import.meta.url)) {
   const args = process.argv.slice(2)
-  const opt = (name: string) => {
-    const i = args.indexOf(`--${name}`)
-    return i >= 0 ? args[i + 1] : undefined
-  }
-  const root = opt('root') ?? './patch-store'
-  const throttle = opt('throttle')
-  const port = opt('port')
+  const root = argOption(args, 'root', './patch-store')
+  const throttle = argOption(args, 'throttle', '')
+  const port = argOption(args, 'port', '')
   const server = await createDevServer({
     root,
     throttleBytesPerSec: throttle ? Number(throttle) : undefined,

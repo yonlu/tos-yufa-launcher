@@ -7,7 +7,7 @@ const DEFAULTS: Settings = {
   language: 'pt-BR',
   launchArgs: '-SERVICE /S',
   afterLaunch: 'quit',
-  downloadConcurrency: 1,
+  downloadConcurrency: 2,
   allowOfflinePlay: true,
 }
 
@@ -50,7 +50,7 @@ export class SettingsStore {
       language: s.language === 'en' ? 'en' : 'pt-BR',
       launchArgs: typeof s.launchArgs === 'string' ? s.launchArgs : DEFAULTS.launchArgs,
       afterLaunch: ['quit', 'minimize', 'stay'].includes(s.afterLaunch) ? s.afterLaunch : 'quit',
-      downloadConcurrency: [1, 2, 3].includes(s.downloadConcurrency) ? s.downloadConcurrency : 1,
+      downloadConcurrency: [1, 2, 3].includes(s.downloadConcurrency) ? s.downloadConcurrency : DEFAULTS.downloadConcurrency,
       allowOfflinePlay: s.allowOfflinePlay !== false,
     }
   }

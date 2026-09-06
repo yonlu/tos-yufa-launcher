@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import headBg from './assets/head_bg.png'
+import headLeaves from './assets/head_leaves.png'
 import { ErrorBanner } from './components/ErrorBanner'
+import { InstallPanel } from './components/InstallPanel'
 import { NewsPanel } from './components/NewsPanel'
 import { PlayButton } from './components/PlayButton'
+import { RuntimeWarning } from './components/RuntimeWarning'
 import { SettingsModal } from './components/SettingsModal'
 import { StatusArea } from './components/StatusArea'
 import { TitleBar } from './components/TitleBar'
@@ -16,18 +20,22 @@ installMockIfNeeded()
 export default function App() {
   const init = useLauncher((s) => s.init)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  useTranslation() // re-render on language change
+  const { t } = useTranslation()
 
   useEffect(() => {
     void init()
   }, [init])
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-200">
-      {/* backdrop */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_-10%,rgba(56,130,246,0.14),transparent)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(800px_400px_at_85%_110%,rgba(245,158,11,0.10),transparent)]" />
+    <div className="relative flex h-screen flex-col overflow-hidden bg-tos-beige text-tos-brown">
+      {/* backdrop: hero photo fading into parchment, ambient leaves on top */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 bottom-24">
+        <img src={headBg} alt="" className="h-full w-full object-cover object-[center_20%]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/10 to-tos-beige" />
+        <div
+          className="animate-leaf-float absolute inset-0 bg-top bg-no-repeat opacity-40"
+          style={{ backgroundImage: `url(${headLeaves})` }}
+        />
       </div>
 
       <div className="relative z-10 flex h-full flex-col">
@@ -35,20 +43,24 @@ export default function App() {
 
         <main className="flex min-h-0 flex-1">
           <section className="flex min-w-0 flex-1 flex-col justify-end">
-            <div className="px-8 pb-6 pt-10">
-              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-amber-400/80">
-                Tree of Savior
-              </p>
-              <h1 className="mt-1 text-5xl font-black tracking-tight text-slate-50 drop-shadow">
-                YUFA <span className="text-amber-400">CLASSIC</span>
+            <div className="animate-fade-up px-8 pb-6 pt-10 opacity-0" style={{ animationDelay: '0.1s' }}>
+              <h1 className="font-display text-5xl font-bold tracking-tight text-tos-brown drop-shadow-sm">
+                {t('hero.title')} <span className="text-tos-orange">{t('hero.highlight')}</span>
               </h1>
             </div>
+            <InstallPanel />
+            <RuntimeWarning />
             <ErrorBanner />
           </section>
-          <NewsPanel />
+          <div className="animate-fade-up flex opacity-0" style={{ animationDelay: '0.3s' }}>
+            <NewsPanel />
+          </div>
         </main>
 
-        <footer className="flex h-24 shrink-0 items-center border-t border-white/5 bg-black/40 px-8">
+        <footer
+          className="animate-fade-up flex h-24 shrink-0 items-center border-t border-tos-border bg-tos-cream px-8 opacity-0"
+          style={{ animationDelay: '0.2s' }}
+        >
           <StatusArea />
           <PlayButton />
         </footer>

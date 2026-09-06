@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 import type { YufaApi } from '@yufa/shared'
 
 declare global {

@@ -1,4 +1,72 @@
+@import '@fontsource/philosopher/400.css';
+@import '@fontsource/philosopher/700.css';
+@import '@fontsource/roboto/300.css';
+@import '@fontsource/roboto/400.css';
+@import '@fontsource/roboto/700.css';
 @import 'tailwindcss';
+
+@theme {
+  /* ToS Classic palette — ported from website app/globals.css */
+  --color-tos-burgundy: #9f3131;
+  --color-tos-burgundy-dark: #7a2525;
+  --color-tos-red-hover: #df2f03;
+  --color-tos-red-bright: #f15050;
+  --color-tos-orange: #ff9100;
+  --color-tos-orange-dark: #e27500;
+  --color-tos-orange-light: #ffb347;
+  --color-tos-cream: #fefdfb;
+  --color-tos-beige: #ebe7dc;
+  --color-tos-tan: #f3f1ee;
+  --color-tos-brown: #5d504b;
+  --color-tos-brown-light: #82736d;
+  --color-tos-brown-muted: #a39893;
+  --color-tos-border: #e3e2e1;
+  --color-tos-border-dark: #c3bbbb;
+  --color-tos-green: #82a800;
+  --color-tos-tab-bg: #ffe5d2;
+  --color-tos-input-bg: #f1f1f1;
+  --color-tos-input-border: #dcdcdc;
+  --color-tos-button-primary-border: #b35207;
+  --color-tos-button-danger-border: #902e3f;
+  --color-tos-button-danger-mid: #c73939;
+
+  --radius-tos-panel: 10px;
+  --radius-tos-cta: 15px;
+  --radius-tos-tab: 12px;
+
+  --shadow-tos-panel: 0px 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-tos-cta: 0px 4px 15px rgba(255, 145, 0, 0.3);
+  --shadow-tos-cta-hover: 0px 4px 20px rgba(255, 145, 0, 0.5);
+  --shadow-tos-danger: 0px 4px 15px rgba(159, 49, 49, 0.3);
+  --shadow-tos-danger-hover: 0px 4px 20px rgba(241, 80, 80, 0.5);
+
+  --font-display: 'Philosopher', serif;
+  --font-body: 'Roboto', sans-serif;
+
+  --animate-fade-up: fadeUp 0.8s ease-out forwards;
+  --animate-leaf-float: leafFloat 8s ease-in-out infinite;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes leafFloat {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-10px) rotate(2deg);
+  }
+}
 
 html,
 body,
@@ -6,4 +74,25 @@ body,
   height: 100%;
   margin: 0;
   user-select: none;
+}
+
+body {
+  background: var(--color-tos-beige);
+  color: var(--color-tos-brown);
+  font-family: var(--font-body);
+}
+
+/* Reduced-motion guard (ported from site); spinner re-allowed — it communicates state */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .animate-spin {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
 }

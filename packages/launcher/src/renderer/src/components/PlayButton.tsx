@@ -21,7 +21,20 @@ interface ButtonSpec {
 
 /** The single morphing call-to-action: check → update (with progress fill) → play. */
 export function PlayButton() {
-  const { patcher, progress, updater, settings, launching, startUpdate, check, play } = useLauncher()
+  const {
+    patcher,
+    progress,
+    updater,
+    settings,
+    launching,
+    installPath,
+    installCheck,
+    installChecking,
+    startUpdate,
+    startInstall,
+    check,
+    play,
+  } = useLauncher()
   const { t } = useTranslation()
 
   const percent =
@@ -36,10 +49,28 @@ export function PlayButton() {
       case 'checking':
         return { label: t('play.checking'), disabled: true, variant: 'neutral', spinner: true }
       case 'update-available':
-        return { label: t('play.update'), onClick: () => void startUpdate(), disabled: false, variant: 'update' }
+        return {
+          label: t(patcher.installIncomplete ? 'play.resume' : 'play.update'),
+          onClick: () => void startUpdate(),
+          disabled: false,
+          variant: 'update',
+        }
+      case 'not-installed': {
+        // enabled only once the main process judged the folder in the field ok
+        const judged = installCheck && installCheck.path === installPath ? installCheck : null
+        const label =
+          judged?.existing === 'partial' ? 'play.resume' : judged?.existing === 'complete' ? 'play.useFolder' : 'play.install'
+        return {
+          label: t(label),
+          onClick: () => void startInstall(),
+          disabled: installChecking || !judged?.ok,
+          variant: 'update',
+        }
+      }
+      case 'installing':
       case 'updating':
         return {
-          label: t('play.updating', { percent }),
+          label: t(patcher.state === 'installing' ? 'play.installing' : 'play.updating', { percent }),
           disabled: true,
           variant: 'update',
           fillPercent: percent,
@@ -47,6 +78,8 @@ export function PlayButton() {
       case 'verifying':
       case 'repairing':
         return { label: t('play.verifying'), disabled: true, variant: 'neutral', spinner: true }
+      case 'installing-runtimes':
+        return { label: t('play.installingRuntimes'), disabled: true, variant: 'neutral', spinner: true }
       case 'ready':
       case 'up-to-date':
         return { label: t('play.play'), onClick: () => void play(), disabled: false, variant: 'play' }
@@ -79,10 +112,15 @@ export function PlayButton() {
     }
   })()
 
+  // The site's design system has one primary treatment (orange CTA) — play and
+  // update both map to it; label + progress fill disambiguate.
+  const tosPrimary =
+    'border-2 border-tos-button-primary-border bg-gradient-to-b from-tos-orange-light via-tos-orange to-tos-orange-dark text-tos-brown shadow-tos-cta [text-shadow:0px_1px_0px_rgba(255,255,255,0.3)] enabled:hover:shadow-tos-cta-hover enabled:hover:-translate-y-0.5'
   const palette = {
-    play: 'bg-gradient-to-b from-amber-400 to-amber-600 text-amber-950 hover:from-amber-300 hover:to-amber-500 shadow-lg shadow-amber-900/40',
-    update: 'bg-gradient-to-b from-sky-500 to-sky-700 text-white hover:from-sky-400 hover:to-sky-600 shadow-lg shadow-sky-900/40',
-    neutral: 'bg-white/10 text-slate-200 hover:bg-white/15',
+    play: tosPrimary,
+    update: tosPrimary,
+    neutral:
+      'border-2 border-tos-border-dark bg-tos-tan text-tos-brown-light enabled:hover:bg-tos-border enabled:hover:text-tos-brown',
   }[spec.variant]
 
   return (
@@ -90,13 +128,13 @@ export function PlayButton() {
       type="button"
       onClick={spec.onClick}
       disabled={spec.disabled}
-      className={`relative h-14 w-60 overflow-hidden rounded-xl text-base font-bold uppercase tracking-wider transition-all disabled:cursor-default ${palette} ${
+      className={`font-display relative h-14 w-60 overflow-hidden rounded-tos-cta text-base font-bold uppercase tracking-wider transition-all disabled:cursor-default ${palette} ${
         spec.disabled && spec.fillPercent === undefined ? 'opacity-70' : ''
       }`}
     >
       {spec.fillPercent !== undefined && (
         <span
-          className="absolute inset-y-0 left-0 bg-white/25 transition-[width] duration-300"
+          className="absolute inset-y-0 left-0 bg-white/40 transition-[width] duration-300"
           style={{ width: `${spec.fillPercent}%` }}
         />
       )}

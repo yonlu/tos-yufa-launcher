@@ -1,16 +1,26 @@
-import { join } from 'node:path'
+import { basename, dirname } from 'node:path'
 import { promises as fs } from 'node:fs'
 import semver from 'semver'
 import {
   computePlan,
+  emptyInstallRecord,
+  filesToHash,
   manifestSchema,
-  parsePatchFileName,
+  type CheckMode,
+  orderDownloads,
+  patchArchiveRevision,
   type ErrorInfo,
+  type InstallPlan,
+  type InstallRecord,
   type Manifest,
+  type ManifestFile,
   type PatcherProgressEvent,
   type PatcherStateEvent,
   type PlanSummary,
-  type UpdatePlan,
+  type RedistStatus,
+  withInstalledFile,
+  withoutFile,
+  withSeeded,
 } from '@yufa/shared'
 import {
   downloadAll,
@@ -18,14 +28,19 @@ import {
   ensureDiskSpace,
   sha256File,
   type DownloadJob,
+  type DownloadProgress,
   type EngineOptions,
 } from './download'
 import {
+  absoluteGamePath,
+  deleteGameFile,
   gamePaths,
-  deletePatchFile,
-  isValidGameDir,
+  hasClientExe,
+  readInstallRecord,
   readLocalRevision,
-  scanPatchDir,
+  scanLocalFiles,
+  statGameFile,
+  writeInstallRecord,
   writeLocalRevision,
   type GamePaths,
 } from './localState'
@@ -39,8 +54,31 @@ export interface PatcherDeps {
   onState?: (e: PatcherStateEvent) => void
   onProgress?: (e: PatcherProgressEvent) => void
   engineOptions?: Partial<EngineOptions>
+  /** Read at the start of every update so a settings change applies to the next run. */
+  downloadConcurrency?: () => number
   manifestTimeoutMs?: number
+  /**
+   * The Redistributable flow (redist.ts): probes the Windows runtimes and
+   * installs the missing ones. Run once an install completes and on demand
+   * from Settings; absent in tests that do not care.
+   */
+  ensureRuntimes?: (hooks: RuntimeHooks) => Promise<RedistStatus>
 }
+
+export interface RuntimeHooks {
+  onStatus: (s: RedistStatus) => void
+  onProgress: (p: DownloadProgress) => void
+}
+
+/** States during which another run must not start. */
+const BUSY_STATES: ReadonlySet<PatcherStateEvent['state']> = new Set([
+  'checking',
+  'installing',
+  'installing-runtimes',
+  'updating',
+  'verifying',
+  'repairing',
+])
 
 class PatcherError extends Error {
   constructor(readonly info: ErrorInfo) {
@@ -49,19 +87,40 @@ class PatcherError extends Error {
   }
 }
 
+/** Thrown out of a hashing loop when cancel() fires; the run ends idle. */
+class Cancelled extends Error {}
+
+/** Everything a check learned: what is current, what is installed, what remains. */
+interface Situation {
+  manifest: Manifest
+  record: InstallRecord | null
+  plan: InstallPlan
+  localRevision: number | null
+  /** No Install Record and no client executable: nothing to update, only to install. */
+  notInstalled: boolean
+}
+
 /**
- * State machine: idle → checking → up-to-date | update-available
- *                → updating(progress) → verifying → ready | error(code)
+ * State machine: idle → checking → not-installed | up-to-date | update-available
+ *                → installing | updating (progress) → verifying → ready | error(code)
  * repair(): checking → repairing(hash progress) → same update path.
- * The manifest is authoritative; release.revision.txt is advanced after
- * every completed file so an interruption always leaves a launchable game.
+ * A run that completes the install (the record was not complete before)
+ * passes through installing-runtimes on its way to ready; the outcome
+ * rides on ready as `redist`, a failure being a warning there.
+ *
+ * The Current Manifest is authoritative; the Install Record is the local
+ * memory of what was installed and is rewritten after every completed file,
+ * so an interrupted install or update resumes from the next check. A check
+ * trusts a recorded Managed File whose stat still matches, but re-hashes
+ * every small one anyway; Repair re-hashes them all (`filesToHash`).
+ * release.revision.txt names the highest Patch archive with no gap below it.
  */
 export class Patcher {
   private readonly paths: GamePaths
-  private manifest: Manifest | null = null
-  private plan: UpdatePlan | null = null
+  private situation: Situation | null = null
   private abort: AbortController | null = null
   private desyncRetried = false
+  private runtimesRunning = false
   private lastState: PatcherStateEvent = { state: 'idle' }
 
   constructor(private readonly deps: PatcherDeps) {
@@ -73,76 +132,196 @@ export class Patcher {
   }
 
   get loadedManifest(): Manifest | null {
-    return this.manifest
+    return this.situation?.manifest ?? null
   }
 
   async check(): Promise<PatcherStateEvent> {
     this.desyncRetried = false
-    return this.checkInternal()
+    return this.checkInternal('check')
   }
 
-  private async checkInternal(): Promise<PatcherStateEvent> {
+  /** Deep verification: re-hash every Managed File present locally, then heal. */
+  async repair(): Promise<PatcherStateEvent> {
+    this.desyncRetried = false
+    const after = await this.checkInternal('repair')
+    return after.state === 'update-available' ? this.update() : after
+  }
+
+  private async checkInternal(mode: CheckMode): Promise<PatcherStateEvent> {
     this.setState({ state: 'checking' })
-    let manifest: Manifest
+    let situation: Situation
     try {
-      manifest = await this.fetchManifest()
+      situation = await this.assess(await this.fetchManifest(), mode)
     } catch (err) {
+      if (err instanceof Cancelled) {
+        this.situation = null
+        return this.setState({ state: 'idle' })
+      }
       return this.fail(err instanceof PatcherError ? err.info : { code: 'offline', message: (err as Error).message })
     }
+    return this.settle(situation)
+  }
 
-    const [localFiles, localRevision] = await Promise.all([
-      scanPatchDir(this.paths),
-      readLocalRevision(this.paths),
-    ])
-    const plan = computePlan({ manifest, localFiles, localRevision })
-    this.manifest = manifest
-    this.plan = plan
+  private async assess(manifest: Manifest, mode: CheckMode): Promise<Situation> {
+    const [record, localRevision] = await Promise.all([readInstallRecord(this.paths), readLocalRevision(this.paths)])
+    const local = await scanLocalFiles(
+      this.paths,
+      new Set([...manifest.files.map((f) => f.path), ...(record?.files.map((f) => f.path) ?? [])]),
+    )
+    if (mode === 'repair') this.setState({ state: 'repairing' })
+    const hashed = await this.hashFiles(filesToHash({ manifest, record, local, mode }))
+    const plan = computePlan({ manifest, record, local, hashed })
+    return { manifest, record, plan, localRevision, notInstalled: !record && !(await hasClientExe(this.paths)) }
+  }
 
-    if (!plan.toDownload.length && !plan.toDelete.length) {
-      if (localRevision !== plan.targetRevision) await writeLocalRevision(this.paths, plan.targetRevision)
-      return this.setState({ state: 'up-to-date', plan: this.summary(plan) })
+  /** Content hashes of the given files, reported as the `hashing` phase; cancel() ends it. */
+  private async hashFiles(files: readonly ManifestFile[]): Promise<Map<string, string>> {
+    const hashed = new Map<string, string>()
+    if (!files.length) return hashed
+    const overallTotal = files.reduce((s, f) => s + f.size, 0)
+    let overallBytes = 0
+    this.abort = new AbortController()
+    try {
+      for (const [i, f] of files.entries()) {
+        if (this.abort.signal.aborted) throw new Cancelled()
+        this.deps.onProgress?.({
+          phase: 'hashing',
+          file: f.path,
+          fileIndex: i + 1,
+          fileCount: files.length,
+          fileBytes: 0,
+          fileTotal: f.size,
+          overallBytes,
+          overallTotal,
+          bytesPerSec: 0,
+          etaSec: null,
+        })
+        hashed.set(f.path, await sha256File(absoluteGamePath(this.paths, f.path)))
+        overallBytes += f.size
+      }
+    } finally {
+      this.abort = null
     }
-    return this.setState({ state: 'update-available', plan: this.summary(plan) })
+    return hashed
+  }
+
+  /**
+   * Publishes what a check found. An up-to-date install is left alone,
+   * except for what may have drifted: release.revision.txt, the record's
+   * build/completed flags, and files the record did not know but whose
+   * content proved right (a crash between rename and record write, or a
+   * located existing install) — those are written into the record so the
+   * next check can trust their stat instead of hashing them again.
+   */
+  private async settle(situation: Situation): Promise<PatcherStateEvent> {
+    const { manifest, plan, localRevision, notInstalled } = situation
+    const summary = this.summary(plan, localRevision)
+    if (notInstalled) {
+      this.situation = situation
+      return this.setState({ state: 'not-installed', plan: summary })
+    }
+    let record = situation.record
+    if (plan.toRecord.length) {
+      record = record ?? emptyInstallRecord(manifest.build)
+      for (const f of plan.toRecord) {
+        const st = await statGameFile(this.paths, f.path)
+        record = withInstalledFile(record, { path: f.path, size: st.size, mtimeMs: st.mtimeMs, sha256: f.sha256 })
+      }
+      await writeInstallRecord(this.paths, record)
+    }
+    this.situation = { ...situation, record }
+    if (!plan.toDownload.length && !plan.toSeed.length && !plan.toDelete.length) {
+      if (localRevision !== plan.targetRevision) await writeLocalRevision(this.paths, plan.targetRevision)
+      if (record && (!record.completed || record.build !== manifest.build)) {
+        await writeInstallRecord(this.paths, { ...record, build: manifest.build, completed: true })
+      }
+      return this.setState({ state: 'up-to-date', plan: summary })
+    }
+    // no complete record: an interrupted install/update, or a located bare client — the UI offers Resume
+    return this.setState({ state: 'update-available', plan: summary, installIncomplete: record?.completed !== true })
+  }
+
+  /** First-time install of the Current Manifest into the (possibly empty) game folder. */
+  async install(): Promise<PatcherStateEvent> {
+    return this.apply('installing')
   }
 
   async update(): Promise<PatcherStateEvent> {
-    const { manifest, plan } = this
-    if (!manifest || !plan) {
-      return this.fail({ code: 'download-failed', message: 'internal: update() called without a plan' })
+    return this.apply('updating')
+  }
+
+  /**
+   * What the install panel's primary button does: check the folder, then
+   * install it when empty or finish what an earlier run left there. Any
+   * other outcome of the check (up-to-date, error) is returned as is.
+   */
+  async installOrResume(): Promise<PatcherStateEvent> {
+    const checked = await this.check()
+    if (checked.state === 'not-installed') return this.install()
+    if (checked.state === 'update-available') return this.update()
+    return checked
+  }
+
+  private async apply(state: 'installing' | 'updating'): Promise<PatcherStateEvent> {
+    const situation = this.situation
+    if (!situation) {
+      return this.fail({ code: 'download-failed', message: `internal: ${state} without a plan` })
     }
     if (await this.deps.isGameRunning?.()) {
       return this.fail({ code: 'game-running' })
     }
+    const { manifest, plan } = situation
+    const summary = this.summary(plan, situation.localRevision)
 
     this.abort = new AbortController()
-    this.setState({ state: 'updating', plan: this.summary(plan) })
+    this.setState({ state, plan: summary })
     try {
-      await ensureDiskSpace(this.paths.patchDir, plan.totalBytes)
+      await fs.mkdir(this.paths.gameDir, { recursive: true })
+      await ensureDiskSpace(this.paths.gameDir, plan.totalBytes)
 
-      for (const name of plan.toDelete) {
+      // The record targets this Build from now on; it is complete only at the end.
+      let record: InstallRecord = situation.record
+        ? { ...situation.record, build: manifest.build, completed: false }
+        : emptyInstallRecord(manifest.build)
+      await writeInstallRecord(this.paths, record)
+
+      for (const path of plan.toDelete) {
         try {
-          await deletePatchFile(this.paths, name)
+          await deleteGameFile(this.paths, path)
         } catch (err) {
           const code = (err as NodeJS.ErrnoException).code
-          if (code === 'EPERM' || code === 'EBUSY') throw new PatcherError({ code: 'file-locked', message: name })
+          if (code === 'EPERM' || code === 'EBUSY') throw new PatcherError({ code: 'file-locked', message: path })
           throw err
         }
+        record = withoutFile(record, path)
+        await writeInstallRecord(this.paths, record)
       }
 
-      const jobs: DownloadJob[] = plan.toDownload.map((f) => ({
-        url: manifest.baseUrl + f.name,
-        destDir: this.paths.patchDir,
-        name: f.name,
-        size: f.size,
-        sha256: f.sha256,
-      }))
+      const entries = orderDownloads([...plan.toDownload, ...plan.toSeed])
+      const jobs: DownloadJob[] = []
+      for (const f of entries) {
+        const dest = absoluteGamePath(this.paths, f.path)
+        await fs.mkdir(dirname(dest), { recursive: true })
+        jobs.push({
+          url: manifest.blobBaseUrl + f.sha256,
+          destDir: dirname(dest),
+          name: basename(dest),
+          size: f.size,
+          sha256: f.sha256,
+        })
+      }
+
+      const revisionReached = this.revisionTracker(manifest, entries)
       await downloadAll(jobs, {
         ...this.deps.engineOptions,
         fetchImpl: this.deps.fetchImpl ?? this.deps.engineOptions?.fetchImpl,
+        concurrency: this.deps.downloadConcurrency?.() ?? this.deps.engineOptions?.concurrency,
         signal: this.abort.signal,
         onProgress: (p) => this.deps.onProgress?.({ phase: 'downloading', ...p }),
-        onFileComplete: async (job) => {
-          const rev = parsePatchFileName(job.name)
+        onFileComplete: async (_job, index) => {
+          const entry = entries[index]!
+          record = await this.recordCompleted(record, entry)
+          const rev = revisionReached(entry)
           if (rev !== null) await writeLocalRevision(this.paths, rev)
         },
       })
@@ -154,74 +333,92 @@ export class Patcher {
       if (problems.length) {
         return this.fail({ code: 'download-failed', message: `verification failed: ${problems.join('; ')}` })
       }
-      this.plan = null
-      return this.setState({ state: 'ready', plan: this.summary(plan) })
+      await writeInstallRecord(this.paths, { ...record, completed: true })
+      // First completion of this folder (fresh or resumed install): the client
+      // needs its Windows runtimes; an ordinary update of a complete install does
+      // not ask again. (Resuming an interrupted update probes too — cheap, and
+      // the probe finds the DLLs present.)
+      const redist = situation.record?.completed === true ? undefined : await this.runRuntimes()
+      this.situation = null
+      return this.setState({ state: 'ready', plan: summary, redist })
     } catch (err) {
-      return this.handleUpdateError(err)
+      return this.handleUpdateError(err, state)
     } finally {
       this.abort = null
     }
   }
 
-  /** Deep verification: re-hash every manifest file present locally, then heal. */
-  async repair(): Promise<PatcherStateEvent> {
-    this.desyncRetried = false
-    this.setState({ state: 'checking' })
-    let manifest: Manifest
-    try {
-      manifest = await this.fetchManifest()
-    } catch (err) {
-      return this.fail(err instanceof PatcherError ? err.info : { code: 'offline', message: (err as Error).message })
+  /** Adds a freshly renamed file to the record and persists it, so a crash right after loses nothing. */
+  private async recordCompleted(record: InstallRecord, entry: ManifestFile): Promise<InstallRecord> {
+    let next: InstallRecord
+    if (entry.class === 'seed-once') {
+      next = withSeeded(record, entry.path)
+    } else {
+      const st = await statGameFile(this.paths, entry.path)
+      next = withInstalledFile(record, { path: entry.path, size: st.size, mtimeMs: st.mtimeMs, sha256: entry.sha256 })
     }
+    if (next !== record) await writeInstallRecord(this.paths, next)
+    return next
+  }
 
-    const [localFiles, localRevision] = await Promise.all([
-      scanPatchDir(this.paths),
-      readLocalRevision(this.paths),
-    ])
-
-    this.abort = new AbortController()
-    this.setState({ state: 'repairing' })
-    const candidates = manifest.files.filter((f) =>
-      localFiles.some((l) => l.name === f.name && l.size === f.size),
-    )
-    const overallTotal = candidates.reduce((s, f) => s + f.size, 0)
-    let overallBytes = 0
-    const corruptNames = new Set<string>()
-    try {
-      for (const [i, f] of candidates.entries()) {
-        if (this.abort.signal.aborted) return this.setState({ state: 'idle' })
-        this.deps.onProgress?.({
-          phase: 'hashing',
-          file: f.name,
-          fileIndex: i + 1,
-          fileCount: candidates.length,
-          fileBytes: 0,
-          fileTotal: f.size,
-          overallBytes,
-          overallTotal,
-          bytesPerSec: 0,
-          etaSec: null,
-        })
-        if ((await sha256File(join(this.paths.patchDir, f.name))) !== f.sha256) corruptNames.add(f.name)
-        overallBytes += f.size
+  /**
+   * Files may complete out of order. Given a just-completed file, returns
+   * the revision the revision file may now name — the highest manifest
+   * archive with every lower archive either already installed or completed
+   * in this run — or null when nothing changed.
+   */
+  private revisionTracker(
+    manifest: Manifest,
+    entries: readonly ManifestFile[],
+  ): (done: ManifestFile) => number | null {
+    const pending = new Set(entries.map((f) => f.path).filter((p) => patchArchiveRevision(p) !== null))
+    const archives = manifest.files
+      .filter((f) => patchArchiveRevision(f.path) !== null)
+      .sort((a, b) => patchArchiveRevision(a.path)! - patchArchiveRevision(b.path)!)
+    let written = 0 // nothing to say until the lowest pending archive lands
+    return (done) => {
+      if (!pending.delete(done.path)) return null
+      let reach = 0
+      for (const a of archives) {
+        if (pending.has(a.path)) break
+        reach = patchArchiveRevision(a.path)!
       }
-    } finally {
-      this.abort = null
+      if (reach === written) return null
+      written = reach
+      return reach
     }
-
-    const plan = computePlan({ manifest, localFiles, localRevision, corruptNames })
-    this.manifest = manifest
-    this.plan = plan
-
-    if (!plan.toDownload.length && !plan.toDelete.length) {
-      if (localRevision !== plan.targetRevision) await writeLocalRevision(this.paths, plan.targetRevision)
-      return this.setState({ state: 'up-to-date', plan: this.summary(plan) })
-    }
-    return this.update()
   }
 
   cancel(): void {
     this.abort?.abort()
+  }
+
+  /**
+   * Settings' "Check runtimes": re-runs the Redistributable flow and comes
+   * back to the state it found, carrying the outcome. Ignored while a
+   * check or download is running.
+   */
+  async checkRuntimes(): Promise<PatcherStateEvent> {
+    const before = this.lastState
+    // installing-runtimes is only published once the flow has something to
+    // report, so a second click during the probe needs its own guard
+    if (BUSY_STATES.has(before.state) || this.runtimesRunning || !this.deps.ensureRuntimes) return before
+    this.runtimesRunning = true
+    try {
+      const redist = await this.runRuntimes()
+      return this.setState({ ...before, redist })
+    } finally {
+      this.runtimesRunning = false
+    }
+  }
+
+  /** Runs the flow, reporting its download and elevation phases as installing-runtimes; undefined without a flow. */
+  private async runRuntimes(): Promise<RedistStatus | undefined> {
+    if (!this.deps.ensureRuntimes) return undefined
+    return this.deps.ensureRuntimes({
+      onStatus: (redist) => this.setState({ state: 'installing-runtimes', redist }),
+      onProgress: (p) => this.deps.onProgress?.({ phase: 'downloading', ...p }),
+    })
   }
 
   private async fetchManifest(): Promise<Manifest> {
@@ -259,31 +456,34 @@ export class Patcher {
     return manifest
   }
 
+  /** Every Managed File exists with the manifest's size and the revision file agrees. */
   private async quickVerify(manifest: Manifest): Promise<string[]> {
+    const managed = manifest.files.filter((f) => f.class === 'managed')
+    const local = await scanLocalFiles(this.paths, managed.map((f) => f.path))
     const problems: string[] = []
-    for (const f of manifest.files) {
-      const st = await fs.stat(join(this.paths.patchDir, f.name)).catch(() => null)
-      if (!st) problems.push(`${f.name} missing`)
-      else if (st.size !== f.size) problems.push(`${f.name} has ${st.size} bytes, expected ${f.size}`)
+    for (const f of managed) {
+      const st = local.get(f.path)
+      if (!st) problems.push(`${f.path} missing`)
+      else if (st.size !== f.size) problems.push(`${f.path} has ${st.size} bytes, expected ${f.size}`)
     }
     const revision = await readLocalRevision(this.paths)
     if (revision !== manifest.revision) problems.push(`revision file says ${revision}, expected ${manifest.revision}`)
     return problems
   }
 
-  private async handleUpdateError(err: unknown): Promise<PatcherStateEvent> {
+  private async handleUpdateError(err: unknown, state: 'installing' | 'updating'): Promise<PatcherStateEvent> {
     if (err instanceof PatcherError) return this.fail(err.info)
     if (err instanceof DownloadError) {
       switch (err.code) {
         case 'aborted':
-          this.plan = null
+          this.situation = null
           return this.setState({ state: 'idle' })
         case 'not-found': {
-          // publish race: manifest listed a file the CDN doesn't have yet — re-check once
+          // publish race: manifest listed a Blob the CDN doesn't have yet — re-check once
           if (!this.desyncRetried) {
             this.desyncRetried = true
-            const after = await this.checkInternal()
-            if (after.state === 'update-available') return this.update()
+            const after = await this.checkInternal('check')
+            if (after.state === 'update-available') return this.apply(state)
             return after
           }
           return this.fail({ code: 'manifest-cdn-desync', message: err.message })
@@ -299,18 +499,19 @@ export class Patcher {
     return this.fail({ code: 'download-failed', message: (err as Error).message })
   }
 
-  private summary(plan: UpdatePlan): PlanSummary {
+  private summary(plan: InstallPlan, localRevision: number | null): PlanSummary {
     return {
-      fileCount: plan.toDownload.length,
+      fileCount: plan.toDownload.length + plan.toSeed.length,
       deleteCount: plan.toDelete.length,
       totalBytes: plan.totalBytes,
       targetRevision: plan.targetRevision,
-      localRevision: plan.localRevision,
+      localRevision: localRevision ?? 0,
     }
   }
 
   private async offlinePlayable(): Promise<boolean> {
-    return (await isValidGameDir(this.paths.gameDir)) && (await readLocalRevision(this.paths)) !== null
+    const record = await readInstallRecord(this.paths)
+    return record?.completed === true
   }
 
   private async fail(info: ErrorInfo): Promise<PatcherStateEvent> {

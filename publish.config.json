@@ -1,11 +1,27 @@
 {
   "bucket": "yufa-patch",
-  "endpoint": "https://REPLACE_WITH_ACCOUNT_ID.r2.cloudflarestorage.com",
-  "publicBaseUrl": "https://patch.REPLACE_WITH_DOMAIN/",
+  "endpoint": "https://5b06cecd03255310e5abcf003ac56c78.r2.cloudflarestorage.com",
+  "publicBaseUrl": "https://patch.tosclassic.com/",
   "manifestKey": "manifest.json",
-  "patchesPrefix": "patches/",
+  "manifestsPrefix": "manifests/",
+  "objectsPrefix": "objects/",
+  "redistPrefix": "redist/",
   "newsKey": "news/news.json",
   "newsImagesPrefix": "news/img/",
   "launcherPrefix": "launcher/",
-  "grandfatherRevision": 234929
+  "excludes": [
+    "release/patch/",
+    "_CommonRedist/",
+    "release/Client_tos.exe",
+    "release/Yuka.exe",
+    "release/Yuka.dll",
+    "release/TosSteamClient.dll",
+    "release/steam_api.dll",
+    "release/steamclient.dll",
+    "release/sdkencryptedappticket.dll",
+    "release/steam_appid.txt"
+  ],
+  "includes": ["release/patch/updater.config.xml"],
+  "seedOnce": ["release/uilayout.xml", "release/hotkey_operator.xml", "release/hotkey_user.xml"],
+  "hashCache": ".yufa-hash-cache.json"
 }

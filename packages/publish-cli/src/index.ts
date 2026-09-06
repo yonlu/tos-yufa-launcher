@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 import { Command } from 'commander'
 import { loadConfig } from './config'
-import { newsPush, patch, publishLauncher, rollback, seed, verify, type Ctx } from './commands'
-import { DryRunStore, LocalDirStore, R2Store, type PatchStore } from './store'
+import { gc, newsPush, patch, publishLauncher, redistPush, release, rollback, verify, type Ctx } from './commands'
+import { DryRunStore, LocalDirStore, R2Store, type PublishStore } from './store'
 
 const program = new Command()
 
 program
   .name('yufa-publish')
-  .description('Publishes patches, news and launcher builds for Yufa ToS Classic')
+  .description('Publishes game builds, patches, news and launcher builds for Yufa ToS Classic')
   .option('--config <path>', 'path to publish.config.json (default: search upward from cwd)')
   .option('--local-out <dir>', 'write to a local directory instead of R2')
   .option('--dry-run', 'log what would be written without writing')
@@ -16,25 +16,25 @@ program
 function buildCtx(): Ctx {
   const opts = program.opts<{ config?: string; localOut?: string; dryRun?: boolean }>()
   const cfg = loadConfig(opts.config)
-  let store: PatchStore = opts.localOut ? new LocalDirStore(opts.localOut) : new R2Store(cfg)
+  let store: PublishStore = opts.localOut ? new LocalDirStore(opts.localOut) : new R2Store(cfg)
   if (opts.dryRun) store = new DryRunStore(store)
   console.log(`target: ${store.describe()}`)
   return { cfg, store }
 }
 
 program
-  .command('seed')
-  .description('build the initial manifest from an existing game patch folder')
-  .requiredOption('--patch-dir <dir>', 'the game\'s patch\\ folder')
-  .option('--include <names...>', 'candidate files to include in the manifest', [])
-  .option('--exclude <names...>', 'candidate files to leave out', [])
-  .action(async (o: { patchDir: string; include: string[]; exclude: string[] }) => {
-    await seed(buildCtx(), { patchDir: o.patchDir, include: o.include, exclude: o.exclude })
+  .command('release')
+  .description('publish a complete Build from a local game folder')
+  .requiredOption('--dir <folder>', 'the game folder (contains data\\, patch\\, release\\)')
+  .option('--label <text>', 'human label for the Build (e.g. "1.0")')
+  .option('--min-launcher <version>', 'minimum launcher version allowed to install this Build')
+  .action(async (o: { dir: string; label?: string; minLauncher?: string }) => {
+    await release(buildCtx(), { dir: o.dir, label: o.label, minLauncher: o.minLauncher })
   })
 
 program
   .command('patch')
-  .description('publish new patch ipf(s): <revision>_001001.ipf, revision above the current one')
+  .description('publish a Build = current Build + patch ipf(s): <revision>_001001.ipf above the current revision')
   .argument('<files...>')
   .action(async (files: string[]) => {
     await patch(buildCtx(), { files })
@@ -42,10 +42,10 @@ program
 
 program
   .command('rollback')
-  .description('drop every manifest entry above the given revision')
-  .argument('<revision>')
-  .action(async (revision: string) => {
-    await rollback(buildCtx(), Number.parseInt(revision, 10))
+  .description('make a stored Build current again')
+  .argument('<build>')
+  .action(async (build: string) => {
+    await rollback(buildCtx(), Number.parseInt(build, 10))
   })
 
 const news = program.command('news').description('manage the launcher news feed')
@@ -59,18 +59,38 @@ news
 
 program
   .command('verify')
-  .description('check that the store matches the manifest')
-  .option('--mirror <dir>', 'also re-hash files from a local mirror directory')
+  .description('check that every Blob the Current Manifest references is stored with the right size')
+  .option('--mirror <dir>', 'also compare the Current Manifest against this local game folder, hash by hash')
   .action(async (o: { mirror?: string }) => {
     const result = await verify(buildCtx(), { mirror: o.mirror })
     if (!result.ok) process.exitCode = 1
   })
 
 program
+  .command('gc')
+  .description('delete Blobs that none of the N newest stored Builds (nor the current one) reference')
+  .requiredOption('--keep <n>', 'how many of the newest Builds keep their Blobs')
+  .action(async (o: { keep: string }) => {
+    await gc(buildCtx(), { keep: Number(o.keep) })
+  })
+
+const redist = program.command('redist').description('manage the Windows runtime installers (redist/)')
+redist
+  .command('push')
+  .description(
+    'upload the trimmed runtime installers and write redist/index.json last; ' +
+      '<folder> holds vcredist/vc_redist.x86.exe and directx/{DXSETUP.exe,DSETUP.dll,dsetup32.dll,dxupdate.cab,Jun2010_d3dx9_43_x86.cab}',
+  )
+  .requiredOption('--dir <folder>', 'folder with the vcredist/ and directx/ subfolders')
+  .action(async (o: { dir: string }) => {
+    await redistPush(buildCtx(), { dir: o.dir })
+  })
+
+program
   .command('launcher')
   .description('publish an electron-builder output dir as the self-update feed')
   .argument('<distDir>')
-  .option('--min-launcher <version>', 'also set manifest.minLauncherVersion (forces old launchers to update)')
+  .option('--min-launcher <version>', 'also publish a new Build requiring this launcher version')
   .action(async (distDir: string, o: { minLauncher?: string }) => {
     await publishLauncher(buildCtx(), distDir, o.minLauncher)
   })

@@ -1,5 +1,9 @@
+# appId and publish.url are the self-update identity: an installed launcher
+# finds its registry entry by appId and its feed by the url. Both must stay
+# as they are; only the product name and install folder moved to the
+# publisher convention (build/installer.nsh).
 appId: br.com.yufa.launcher
-productName: Yufa ToS Classic Launcher
+productName: Yufa Launcher
 electronVersion: 43.0.0
 directories:
   output: release-builds
@@ -9,11 +13,14 @@ files:
 asar: true
 win:
   target: nsis
+  icon: build/icon.ico
 nsis:
   oneClick: true
   perMachine: false
   deleteAppDataOnUninstall: false
+  menuCategory: Hyped Games
+  include: build/installer.nsh
   artifactName: Yufa-Launcher-Setup-${version}.exe
 publish:
   provider: generic
-  url: https://patch.REPLACE_WITH_DOMAIN/launcher/
+  url: https://patch.tosclassic.com/launcher/

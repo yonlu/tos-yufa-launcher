@@ -23,15 +23,26 @@ export function StatusArea() {
     case 'ready':
       statusLine = t('status.ready', { revision: patcher.plan?.targetRevision ?? '' })
       break
+    case 'not-installed':
+      statusLine = t('status.notInstalled', { size: formatBytes(patcher.plan?.totalBytes ?? 0) })
+      break
     case 'update-available':
       statusLine =
         (patcher.plan?.fileCount ?? 0) > 0
-          ? t('status.updateAvailable', {
+          ? t(patcher.installIncomplete ? 'status.resumeAvailable' : 'status.updateAvailable', {
               count: patcher.plan?.fileCount ?? 0,
               size: formatBytes(patcher.plan?.totalBytes ?? 0),
             })
           : t('status.cleanupAvailable', { count: patcher.plan?.deleteCount ?? 0 })
       break
+    case 'installing-runtimes':
+      // downloading: the engine's per-file line; installing: tell the player the UAC prompt is coming
+      statusLine =
+        patcher.redist?.status === 'downloading' && progress
+          ? t('status.runtimes.downloading', { file: progress.file, index: progress.fileIndex, count: progress.fileCount })
+          : t('status.runtimes.installing')
+      break
+    case 'installing':
     case 'updating':
     case 'repairing':
     case 'verifying':
@@ -47,35 +58,37 @@ export function StatusArea() {
       statusLine = null
   }
 
-  const showBar = (patcher.state === 'updating' || patcher.state === 'repairing') && progress
+  const active = patcher.state === 'installing' || patcher.state === 'updating'
+  const runtimesDownloading = patcher.state === 'installing-runtimes' && patcher.redist?.status === 'downloading'
+  const showBar = (active || patcher.state === 'repairing' || runtimesDownloading) && progress
   const showSpeed = showBar && progress!.phase === 'downloading' && progress!.bytesPerSec > 0
 
   return (
     <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 pr-8">
       <div className="flex items-baseline gap-3">
-        {statusLine && <p className="truncate text-sm text-slate-300">{statusLine}</p>}
+        {statusLine && <p className="truncate text-sm text-tos-brown">{statusLine}</p>}
         {showSpeed && (
-          <p className="shrink-0 text-xs text-slate-500">
+          <p className="shrink-0 text-xs text-tos-brown-muted">
             {t('status.speed', {
               speed: formatBytes(progress!.bytesPerSec),
               eta: progress!.etaSec !== null ? formatEta(progress!.etaSec) : '…',
             })}
           </p>
         )}
-        {patcher.state === 'updating' && (
+        {active && (
           <button
             type="button"
             onClick={() => void cancel()}
-            className="shrink-0 text-xs text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+            className="shrink-0 text-xs text-tos-brown-light underline-offset-2 hover:text-tos-burgundy hover:underline"
           >
             {t('play.cancel')}
           </button>
         )}
       </div>
       {showBar && (
-        <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-tos-brown/10">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-sky-500 to-sky-400 transition-[width] duration-300"
+            className="h-full rounded-full bg-gradient-to-r from-tos-orange-light to-tos-orange transition-[width] duration-300"
             style={{ width: `${percent}%` }}
           />
         </div>

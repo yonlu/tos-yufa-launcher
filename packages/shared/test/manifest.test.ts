@@ -1,23 +1,35 @@
 import { describe, expect, it } from 'vitest'
 import {
-  GRANDFATHER_REVISION as GF,
+  deriveRevision,
   manifestSchema,
   newsFeedSchema,
   parsePatchFileName,
+  patchArchiveRevision,
   patchFileName,
   PATCH_FILE_RE,
+  type ManifestFile,
 } from '../src/index'
+
+function file(path: string, over: Partial<ManifestFile> = {}): ManifestFile {
+  return { path, size: 100, sha256: 'a'.repeat(64), class: 'managed', ...over }
+}
 
 function validManifest(overrides: Record<string, unknown> = {}) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    build: 3,
+    label: '1.0',
+    generatedAt: '2026-09-05T12:00:00.000Z',
     minLauncherVersion: '1.0.0',
-    revision: GF + 2,
-    baseUrl: 'https://patch.example.com/patches/',
+    blobBaseUrl: 'https://patch.example.com/objects/',
     newsUrl: 'https://patch.example.com/news/news.json',
+    revision: 1121001,
     files: [
-      { name: patchFileName(GF + 1), revision: GF + 1, size: 100, sha256: 'a'.repeat(64) },
-      { name: patchFileName(GF + 2), revision: GF + 2, size: 200, sha256: 'b'.repeat(64) },
+      file('data/bg_hi.ipf'),
+      file('patch/1116001_001001.ipf'),
+      file('patch/1121001_001001.ipf'),
+      file('release/Yuka.exe'),
+      file('release/uilayout.xml', { class: 'seed-once' }),
     ],
     ...overrides,
   }
@@ -42,39 +54,66 @@ describe('PATCH_FILE_RE / parsePatchFileName', () => {
   })
 })
 
-describe('manifestSchema', () => {
+describe('patchArchiveRevision / deriveRevision', () => {
+  it('only entries directly under patch/ count as patch archives', () => {
+    expect(patchArchiveRevision('patch/1116001_001001.ipf')).toBe(1116001)
+    expect(patchArchiveRevision('Patch/1116001_001001.ipf')).toBe(1116001)
+    expect(patchArchiveRevision('1116001_001001.ipf')).toBeNull()
+    expect(patchArchiveRevision('addons/patch/1116001_001001.ipf')).toBeNull()
+    expect(patchArchiveRevision('patch/sub/1116001_001001.ipf')).toBeNull()
+    expect(patchArchiveRevision('patch/_betterquest.ipf')).toBeNull()
+  })
+
+  it('derives the highest archive revision, 0 when there are none', () => {
+    expect(deriveRevision(validManifest().files as ManifestFile[])).toBe(1121001)
+    expect(deriveRevision([file('data/x.ipf'), file('release/Yuka.exe')])).toBe(0)
+  })
+})
+
+describe('manifestSchema (version 2)', () => {
   it('accepts a valid manifest', () => {
     expect(manifestSchema.safeParse(validManifest()).success).toBe(true)
   })
 
-  it('accepts an empty file list with any base revision', () => {
-    expect(manifestSchema.safeParse(validManifest({ files: [], revision: GF })).success).toBe(true)
+  it('accepts a manifest without a label and without patch archives at revision 0', () => {
+    const m = validManifest({ label: undefined, revision: 0, files: [file('release/Yuka.exe')] })
+    expect(manifestSchema.safeParse(m).success).toBe(true)
   })
 
-  it('rejects a file whose name does not encode its revision', () => {
-    const m = validManifest({
-      files: [{ name: patchFileName(GF + 1), revision: GF + 2, size: 100, sha256: 'a'.repeat(64) }],
-      revision: GF + 2,
-    })
-    expect(manifestSchema.safeParse(m).success).toBe(false)
+  it('rejects the old schema version', () => {
+    expect(manifestSchema.safeParse(validManifest({ schemaVersion: 1 })).success).toBe(false)
   })
 
-  it('rejects unsorted or duplicate revisions', () => {
-    const [a, b] = validManifest().files as [unknown, unknown]
-    expect(manifestSchema.safeParse(validManifest({ files: [b, a] })).success).toBe(false)
-    expect(manifestSchema.safeParse(validManifest({ files: [a, a], revision: GF + 1 })).success).toBe(false)
+  it('rejects absolute paths, parent traversal, drive letters and backslashes', () => {
+    for (const path of ['/release/Yuka.exe', 'release/../user.xml', '..', 'C:/release/Yuka.exe', 'release\\Yuka.exe', 'release//x', 'release/']) {
+      const m = validManifest({ files: [file(path)], revision: 0 })
+      expect(manifestSchema.safeParse(m).success, path).toBe(false)
+    }
   })
 
-  it('rejects a top-level revision that is not the highest file revision', () => {
-    expect(manifestSchema.safeParse(validManifest({ revision: GF + 1 })).success).toBe(false)
+  it('rejects unsorted or duplicate paths', () => {
+    const a = file('data/a.ipf')
+    const b = file('data/b.ipf')
+    expect(manifestSchema.safeParse(validManifest({ files: [b, a], revision: 0 })).success).toBe(false)
+    expect(manifestSchema.safeParse(validManifest({ files: [a, a], revision: 0 })).success).toBe(false)
   })
 
-  it('rejects malformed hashes', () => {
-    const m = validManifest({
-      files: [{ name: patchFileName(GF + 1), revision: GF + 1, size: 100, sha256: 'ZZ'.repeat(32) }],
-      revision: GF + 1,
-    })
-    expect(manifestSchema.safeParse(m).success).toBe(false)
+  it('rejects a revision that is not the highest patch archive revision', () => {
+    expect(manifestSchema.safeParse(validManifest({ revision: 1116001 })).success).toBe(false)
+    expect(manifestSchema.safeParse(validManifest({ files: [file('release/Yuka.exe')], revision: 5 })).success).toBe(false)
+  })
+
+  it('rejects unknown file classes and malformed hashes', () => {
+    expect(
+      manifestSchema.safeParse(validManifest({ files: [file('a', { class: 'player' as never })], revision: 0 })).success,
+    ).toBe(false)
+    expect(
+      manifestSchema.safeParse(validManifest({ files: [file('a', { sha256: 'ZZ'.repeat(32) })], revision: 0 })).success,
+    ).toBe(false)
+  })
+
+  it('rejects a non-positive build', () => {
+    expect(manifestSchema.safeParse(validManifest({ build: 0 })).success).toBe(false)
   })
 })
 

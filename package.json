@@ -9,15 +9,21 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p packages/shared && tsc --noEmit -p packages/publish-cli",
+    "typecheck": "tsc --noEmit -p packages/shared && tsc --noEmit -p packages/publish-cli && tsc --noEmit -p packages/launcher && tsc --noEmit -p tools",
     "dev": "npm run dev -w @yufa/launcher",
     "build": "npm run build -w @yufa/launcher",
     "dist": "npm run dist -w @yufa/launcher",
     "yufa-publish": "tsx packages/publish-cli/src/index.ts",
-    "dev-server": "tsx tools/dev-server.ts"
+    "dev-server": "tsx tools/dev-server.ts",
+    "e2e-setup": "tsx tools/e2e-setup.ts",
+    "e2e": "tsx tools/e2e-smoke.ts",
+    "mock": "tsx tools/mock-play.ts",
+    "make-icon": "tsx tools/make-icon.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.35.3",
     "tsx": "^4.22.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

@@ -61,6 +61,8 @@ export interface EngineOptions {
   /** Awaited after each file is verified and renamed into place. */
   onFileComplete?: (job: DownloadJob, index: number) => void | Promise<void>
   signal?: AbortSignal
+  /** Files downloaded at once, 1–3. Default 1. */
+  concurrency?: number
 }
 
 export async function sha256File(path: string): Promise<string> {
@@ -72,6 +74,11 @@ export async function sha256File(path: string): Promise<string> {
 function isAbortError(err: unknown): boolean {
   const e = err as { name?: string; code?: string }
   return e?.name === 'AbortError' || e?.code === 'ABORT_ERR'
+}
+
+function asDownloadError(err: unknown, retryable: boolean): DownloadError {
+  if (err instanceof DownloadError) return err
+  return new DownloadError(`unexpected: ${(err as Error).message}`, 'network', retryable)
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -117,11 +124,19 @@ interface AttemptReporter {
   add(n: number, network: boolean): void
 }
 
-/** Frees `needed` bytes plus a 200 MB safety margin, or throws disk-full. */
-export async function ensureDiskSpace(dir: string, needed: number): Promise<void> {
+/** Safety margin kept free beyond the bytes a plan downloads. */
+export const DISK_SPACE_MARGIN_BYTES = 200 * 1024 * 1024
+
+/** Bytes available to this user on the drive holding `dir` (which must exist). */
+export async function freeBytes(dir: string): Promise<number> {
   const sf = await fs.statfs(dir)
-  const free = Number(sf.bavail) * Number(sf.bsize)
-  const required = needed + 200 * 1024 * 1024
+  return Number(sf.bavail) * Number(sf.bsize)
+}
+
+/** Frees `needed` bytes plus the safety margin, or throws disk-full. */
+export async function ensureDiskSpace(dir: string, needed: number): Promise<void> {
+  const free = await freeBytes(dir)
+  const required = needed + DISK_SPACE_MARGIN_BYTES
   if (free < required) {
     throw new DownloadError(
       `need ${Math.ceil(required / 1e6)} MB free in ${dir}, only ${Math.floor(free / 1e6)} MB available`,
@@ -227,50 +242,76 @@ async function attemptOne(
 }
 
 /**
- * Downloads jobs sequentially (ascending order is the caller's contract:
- * the patcher advances release.revision.txt after each completed file).
- * Each file: resume from .part via Range (prefix re-hashed into the same
- * digest), streaming sha256, atomic rename, retry with backoff.
+ * Downloads jobs with at most `concurrency` (1–3, default 1) in flight;
+ * jobs are started in array order. Each file: resume from .part via Range
+ * (prefix re-hashed into the same digest), streaming sha256, atomic
+ * rename, retry with backoff. `onFileComplete` fires exactly once per
+ * file, after its rename, and calls never overlap — but files may complete
+ * out of order, so a caller tracking "highest contiguous completed file"
+ * must do so from the index it receives. The first failure (or an abort)
+ * cancels the other in-flight files, whose .part files stay resumable.
  */
 export async function downloadAll(jobs: DownloadJob[], opts: EngineOptions = {}): Promise<void> {
   const fetchImpl = opts.fetchImpl ?? fetch
   const retries = opts.retries ?? 5
   const backoff = opts.backoffMs ?? ((attempt) => 1000 * 2 ** (attempt - 1) + Math.random() * 500)
   const intervalMs = opts.progressIntervalMs ?? 250
+  const concurrency = Number.isFinite(opts.concurrency) ? Math.min(3, Math.max(1, Math.floor(opts.concurrency!))) : 1
 
   const overallTotal = jobs.reduce((s, j) => s + j.size, 0)
   const speed = new SpeedMeter()
-  let overallBase = 0
-  let fileBytes = 0
+  const inFlight = new Map<number, number>() // job index → bytes so far
+  let completedBytes = 0
+  let lastStarted = -1 // job index shown on the per-file line
   let lastEmit = 0
 
-  for (const [index, job] of jobs.entries()) {
-    const emit = (force = false) => {
-      const now = Date.now()
-      if (!force && now - lastEmit < intervalMs) return
-      lastEmit = now
-      const overallBytes = overallBase + fileBytes
-      const rate = speed.bytesPerSec()
-      opts.onProgress?.({
-        file: job.name,
-        fileIndex: index + 1,
-        fileCount: jobs.length,
-        fileBytes,
-        fileTotal: job.size,
-        overallBytes,
-        overallTotal,
-        bytesPerSec: rate,
-        etaSec: rate > 0 ? Math.round((overallTotal - overallBytes) / rate) : null,
-      })
-    }
+  const emit = (force = false) => {
+    const now = Date.now()
+    if (!force && now - lastEmit < intervalMs) return
+    lastEmit = now
+    const job = jobs[lastStarted]
+    if (!job) return
+    let overallBytes = completedBytes
+    for (const n of inFlight.values()) overallBytes += n
+    const rate = speed.bytesPerSec()
+    opts.onProgress?.({
+      file: job.name,
+      fileIndex: lastStarted + 1,
+      fileCount: jobs.length,
+      fileBytes: inFlight.get(lastStarted) ?? job.size,
+      fileTotal: job.size,
+      overallBytes,
+      overallTotal,
+      bytesPerSec: rate,
+      etaSec: rate > 0 ? Math.round((overallTotal - overallBytes) / rate) : null,
+    })
+  }
 
+  // One controller for everything in flight: the caller's signal or the
+  // first failing file trips it, so nothing keeps downloading for nothing.
+  const ac = new AbortController()
+  const onOuterAbort = () => ac.abort()
+  if (opts.signal?.aborted) ac.abort()
+  else opts.signal?.addEventListener('abort', onOuterAbort, { once: true })
+
+  // onFileComplete calls are queued on this chain so they never overlap;
+  // a rejected callback surfaces to its own worker and does not stop the
+  // callbacks of files that were already renamed into place.
+  let callbackChain: Promise<void> = Promise.resolve()
+  let firstError: DownloadError | null = null
+  let nextIndex = 0
+
+  const downloadOne = async (index: number): Promise<void> => {
+    const job = jobs[index]!
+    lastStarted = index
+    inFlight.set(index, 0)
     const report: AttemptReporter = {
       reset: () => {
-        fileBytes = 0
+        inFlight.set(index, 0)
         emit(true)
       },
       add: (n, network) => {
-        fileBytes += n
+        inFlight.set(index, inFlight.get(index)! + n)
         if (network) speed.add(n)
         emit()
       },
@@ -278,24 +319,43 @@ export async function downloadAll(jobs: DownloadJob[], opts: EngineOptions = {})
 
     let attempt = 0
     for (;;) {
-      if (opts.signal?.aborted) throw new DownloadError('aborted', 'aborted', false)
+      if (ac.signal.aborted) throw new DownloadError('aborted', 'aborted', false)
       try {
-        await attemptOne(job, fetchImpl, opts.signal, report)
+        await attemptOne(job, fetchImpl, ac.signal, report)
         break
       } catch (err) {
-        const de =
-          err instanceof DownloadError
-            ? err
-            : new DownloadError(`unexpected: ${(err as Error).message}`, 'network', true)
+        const de = asDownloadError(err, true)
         if (!de.retryable || attempt >= retries) throw de
         attempt += 1
-        await sleep(backoff(attempt), opts.signal)
+        await sleep(backoff(attempt), ac.signal)
       }
     }
 
-    await opts.onFileComplete?.(job, index)
-    overallBase += job.size
-    fileBytes = 0
+    inFlight.delete(index)
+    completedBytes += job.size
     emit(true)
+    const mine = callbackChain.catch(() => {}).then(() => opts.onFileComplete?.(job, index))
+    callbackChain = mine
+    await mine
   }
+
+  const worker = async (): Promise<void> => {
+    while (nextIndex < jobs.length && !ac.signal.aborted) {
+      const index = nextIndex++
+      try {
+        await downloadOne(index)
+      } catch (err) {
+        firstError ??= asDownloadError(err, false)
+        ac.abort()
+      }
+    }
+  }
+
+  try {
+    await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, worker))
+  } finally {
+    opts.signal?.removeEventListener('abort', onOuterAbort)
+  }
+  if (opts.signal?.aborted) throw new DownloadError('aborted', 'aborted', false)
+  if (firstError) throw firstError
 }
