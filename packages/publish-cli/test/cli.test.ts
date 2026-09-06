@@ -43,6 +43,7 @@ async function makeGameTree() {
   await put(game, 'release/user_c.xml')
   await put(game, 'release/hud_config.xml')
   await put(game, 'release/serverlist_recent.xml')
+  await put(game, 'release/CheatLogData', 'binary session log')
   await put(game, 'release/chat_config_1.xml')
   await put(game, 'release/release.revision.txt', '1116001')
   await put(game, 'release/screenshot/shot.png')
@@ -145,6 +146,7 @@ describe('release', () => {
 
     const paths = (await readCurrent()).files.map((f) => f.path)
     expect(paths).not.toContain('release/user.xml')
+    expect(paths).not.toContain('release/CheatLogData')
     for (const p of paths) {
       expect(p, p).not.toMatch(/^release\/(user|user_c|hud_config|serverlist_recent|chat_config_\d+)\.xml$/)
       expect(p, p).not.toMatch(/release\.revision\.txt$|\.part$|^addons\/|^\.yufa-/)

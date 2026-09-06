@@ -1,7 +1,7 @@
 {
   "bucket": "yufa-patch",
-  "endpoint": "https://REPLACE_WITH_ACCOUNT_ID.r2.cloudflarestorage.com",
-  "publicBaseUrl": "https://patch.REPLACE_WITH_DOMAIN/",
+  "endpoint": "https://5b06cecd03255310e5abcf003ac56c78.r2.cloudflarestorage.com",
+  "publicBaseUrl": "https://patch.tosclassic.com/",
   "manifestKey": "manifest.json",
   "manifestsPrefix": "manifests/",
   "objectsPrefix": "objects/",
@@ -9,7 +9,13 @@
   "newsKey": "news/news.json",
   "newsImagesPrefix": "news/img/",
   "launcherPrefix": "launcher/",
-  "excludes": ["release/patch/", "_CommonRedist/"],
+  "excludes": [
+    "release/patch/",
+    "_CommonRedist/",
+    "release/Client_tos.exe",
+    "release/Yuka.exe",
+    "release/Yuka.dll"
+  ],
   "seedOnce": ["release/uilayout.xml", "release/hotkey_operator.xml", "release/hotkey_user.xml"],
   "hashCache": ".yufa-hash-cache.json"
 }

@@ -25,12 +25,18 @@ const RUNTIME_DIRS: readonly string[] = [
   'fade',
 ]
 
-/** Player-owned files written by the client at exit. Contain the login id and per-character state. */
+/**
+ * Player-owned files written by the client at exit. Contain the login id and
+ * per-character state. CheatLogData is the anti-cheat's binary session log:
+ * rewritten every play session, so it would leak the operator's play and be
+ * "repaired" by the launcher on every check.
+ */
 const GUARDED_FILES: readonly string[] = [
   'release/user.xml',
   'release/user_c.xml',
   'release/hud_config.xml',
   'release/serverlist_recent.xml',
+  'release/CheatLogData',
 ]
 
 /** `.yufa-*` are the launcher's own files in the game folder (Install Record, write probe). */

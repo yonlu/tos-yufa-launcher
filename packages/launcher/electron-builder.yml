@@ -23,4 +23,4 @@ nsis:
   artifactName: Yufa-Launcher-Setup-${version}.exe
 publish:
   provider: generic
-  url: https://patch.REPLACE_WITH_DOMAIN/launcher/
+  url: https://patch.tosclassic.com/launcher/

@@ -31,8 +31,11 @@ Escolha o domínio público (ex.: `patch.yufa.com.br`) e substitua `REPLACE_WITH
 
 1. **Cloudflare R2**: crie o bucket (`yufa-patch`), um token de API (Object Read & Write) e conecte o domínio
    customizado ao bucket. Egress é gratuito; R2 responde HTTP Range (necessário para retomar downloads).
-   Se usar o cache do Cloudflare, crie uma Cache Rule de **bypass** para `manifest.json`, `news/*`, `redist/*` e
-   `launcher/latest.yml`; `manifests/*` e `objects/*` são imutáveis e podem ficar em cache à vontade.
+   Crie duas Cache Rules na zona: (1) **bypass** para `manifest.json`, `news/*`, `redist/*` e `launcher/latest.yml`;
+   (2) **eligible for cache** para `objects/*`, `manifests/*` e `launcher/*` (menos `latest.yml`) — sem essa
+   regra o Cloudflare só cacheia por extensão de arquivo, e `objects/<sha256>` não tem extensão, então todo
+   download iria direto ao R2. O Edge TTL padrão respeita o `max-age=31536000, immutable` que o CLI envia.
+   `scripts/r2-setup.sh` (wizard) imprime as duas expressões prontas.
    Confirme depois do primeiro release:
    `curl -r 0-1023 -sw '%{http_code}' https://patch.<dominio>/objects/<sha256 de um arquivo do manifest>` → `206`.
 2. **Credenciais**: `$env:R2_ACCESS_KEY_ID` / `$env:R2_SECRET_ACCESS_KEY` (nunca no repo).
@@ -46,7 +49,12 @@ Escolha o domínio público (ex.: `patch.yufa.com.br`) e substitua `REPLACE_WITH
    `user_c.xml`, `hud_config.xml`, `serverlist_recent.xml`, `chat_config_*.xml`, `release.revision.txt`, `*.part`,
    `addons\` e as pastas de runtime (`screenshot`, `log_Client`, `user`, `GuildEmblem`…) — é isso que impede o
    login e as configs do operador de vazarem, mesmo publicando de uma pasta jogada. `excludes` no
-   `publish.config.json` tira o resto (`release\patch\`, `_CommonRedist\` por padrão); `seedOnce` nomeia os
+   `publish.config.json` tira o resto (`release\patch\`, `_CommonRedist\` por padrão). **Durante o ensaio**, os
+   `excludes` também seguram `release\Client_tos.exe`, `release\Yuka.exe` e `release\Yuka.dll` — binários ainda
+   sem Themida não vão para o domínio público. Na máquina de teste, copie os três à mão depois do install
+   (o patcher só apaga o que ele mesmo instalou, então sobrevivem a `check` e `rollback`). Quando os binários
+   protegidos existirem: tire as três linhas dos `excludes` e rode `release` de novo — só três Blobs sobem e os
+   jogadores recebem como patch normal. `seedOnce` nomeia os
    arquivos que o jogo reescreve (`uilayout.xml`, hotkeys) e o launcher só semeia uma vez.
    Todos os `patch\*.ipf` da pasta viram Managed Files, inclusive os customizados do servidor; a `revision`
    do Manifest é o maior deles (hoje 1121001) e é o que o launcher grava em `release.revision.txt`.
