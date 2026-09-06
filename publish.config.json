@@ -14,8 +14,14 @@
     "_CommonRedist/",
     "release/Client_tos.exe",
     "release/Yuka.exe",
-    "release/Yuka.dll"
+    "release/Yuka.dll",
+    "release/TosSteamClient.dll",
+    "release/steam_api.dll",
+    "release/steamclient.dll",
+    "release/sdkencryptedappticket.dll",
+    "release/steam_appid.txt"
   ],
+  "includes": ["release/patch/updater.config.xml"],
   "seedOnce": ["release/uilayout.xml", "release/hotkey_operator.xml", "release/hotkey_user.xml"],
   "hashCache": ".yufa-hash-cache.json"
 }

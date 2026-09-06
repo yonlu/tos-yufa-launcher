@@ -67,6 +67,7 @@ beforeEach(async () => {
     newsImagesPrefix: 'news/img/',
     launcherPrefix: 'launcher/',
     excludes: [...DEFAULT_EXCLUDES],
+    includes: [],
     seedOnce: [...DEFAULT_SEED_ONCE],
     hashCache: join(staging, 'hash-cache.json'),
   }

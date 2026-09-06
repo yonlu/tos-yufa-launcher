@@ -51,8 +51,9 @@ async function makeGameTree() {
   await put(game, 'user/whatever.dat')
   await put(game, 'patch/1116002_001001.ipf.part')
   await put(game, 'addons/_betterquest.ipf')
-  // excluded by default config
+  // excluded by default config — except the one file the client needs
   await put(game, 'release/patch/junk.ipf')
+  await put(game, 'release/patch/updater.config.xml', '<Config><URL Key="Revisions" Value="x"/></Config>')
   await put(game, '_CommonRedist/vc_redist.x86.exe')
   return { game, bg, arch, exe, layout }
 }
@@ -94,6 +95,7 @@ beforeEach(async () => {
     newsImagesPrefix: 'news/img/',
     launcherPrefix: 'launcher/',
     excludes: [...DEFAULT_EXCLUDES],
+    includes: [],
     seedOnce: [...DEFAULT_SEED_ONCE],
     hashCache: join(staging, 'hash-cache.json'),
   }
@@ -176,6 +178,27 @@ describe('release', () => {
       ['release/hotkey_user.xml', 'seed-once'],
       ['release/uilayout.xml', 'managed'],
     ])
+  })
+
+  it('includes beat excludes inside a pruned directory but never the hard guard', async () => {
+    const t = await makeGameTree()
+    const custom: PublishConfig = {
+      ...cfg,
+      excludes: [...DEFAULT_EXCLUDES],
+      includes: ['release/patch/updater.config.xml', 'release/user.xml', 'addons/_betterquest.ipf'],
+    }
+
+    await release({ ...ctx, cfg: custom }, { dir: t.game })
+
+    const paths = (await readCurrent()).files.map((f) => f.path)
+    expect(paths).toContain('release/patch/updater.config.xml')
+    expect(paths).not.toContain('release/patch/junk.ipf')
+    expect(paths).not.toContain('release/user.xml')
+    expect(paths).not.toContain('addons/_betterquest.ipf')
+
+    const none: PublishConfig = { ...cfg, excludes: [...DEFAULT_EXCLUDES], includes: [] }
+    await release({ ...ctx, cfg: none }, { dir: t.game })
+    expect((await readCurrent()).files.map((f) => f.path)).not.toContain('release/patch/updater.config.xml')
   })
 
   it('numbers builds monotonically and records label and min launcher', async () => {

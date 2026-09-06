@@ -87,7 +87,7 @@ async function loadStoredManifest(ctx: Ctx, build: number): Promise<{ text: stri
 
 /** The same walk `release` publishes from, so a mirror check sees exactly the publishable files. */
 function gameDirWalkOptions(ctx: Ctx): WalkOptions {
-  return { excludes: ctx.cfg.excludes, skipAbsolute: [ctx.cfg.hashCache] }
+  return { excludes: ctx.cfg.excludes, includes: ctx.cfg.includes, skipAbsolute: [ctx.cfg.hashCache] }
 }
 
 /**

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { loadManifest, release, type Ctx } from '../packages/publish-cli/src/commands'
-import { DEFAULT_EXCLUDES, DEFAULT_SEED_ONCE, type PublishConfig } from '../packages/publish-cli/src/config'
+import { DEFAULT_EXCLUDES, DEFAULT_INCLUDES, DEFAULT_SEED_ONCE, type PublishConfig } from '../packages/publish-cli/src/config'
 import { LocalDirStore } from '../packages/publish-cli/src/store'
 import { patchFileName } from '../packages/shared/src/index'
 import { argOption, isMainModule } from './cli'
@@ -93,6 +93,7 @@ function sandboxConfig(paths: SandboxPaths, url: string): PublishConfig {
     newsImagesPrefix: 'news/img/',
     launcherPrefix: 'launcher/',
     excludes: [...DEFAULT_EXCLUDES],
+    includes: [...DEFAULT_INCLUDES],
     seedOnce: [...DEFAULT_SEED_ONCE],
     hashCache: paths.hashCache,
   }

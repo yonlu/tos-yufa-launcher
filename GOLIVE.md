@@ -49,7 +49,10 @@ Escolha o domínio público (ex.: `patch.yufa.com.br`) e substitua `REPLACE_WITH
    `user_c.xml`, `hud_config.xml`, `serverlist_recent.xml`, `chat_config_*.xml`, `release.revision.txt`, `*.part`,
    `addons\` e as pastas de runtime (`screenshot`, `log_Client`, `user`, `GuildEmblem`…) — é isso que impede o
    login e as configs do operador de vazarem, mesmo publicando de uma pasta jogada. `excludes` no
-   `publish.config.json` tira o resto (`release\patch\`, `_CommonRedist\` por padrão). **Durante o ensaio**, os
+   `publish.config.json` tira o resto (`release\patch\`, `_CommonRedist\` por padrão); `includes` devolve um caminho
+   exato apesar dos `excludes` — hoje só `release\patch\updater.config.xml`, que o `Client_tos.exe` abre no
+   `InitConfig` (lê `Config/URL[@Key="Revisions"]`) e sem o qual aborta com "Can't load config files"; nada mais
+   de `release\patch\` é lido. **Durante o ensaio**, os
    `excludes` também seguram `release\Client_tos.exe`, `release\Yuka.exe` e `release\Yuka.dll` — binários ainda
    sem Themida não vão para o domínio público. Na máquina de teste, copie os três à mão depois do install
    (o patcher só apaga o que ele mesmo instalou, então sobrevivem a `check` e `rollback`). Quando os binários
@@ -99,6 +102,20 @@ Escolha o domínio público (ex.: `patch.yufa.com.br`) e substitua `REPLACE_WITH
 - **Atualizar o launcher**: bump `version` em `packages/launcher/package.json` → `npm run dist` →
   `launcher packages/launcher/release-builds` (+ `--min-launcher <ver>` para forçar a atualização antes do próximo Build).
 - **Ensaio local** de qualquer coisa acima: `npm run e2e` (tudo automático) ou o fluxo manual do README.
+
+## Decisões do ensaio (2026-09-06)
+
+- **`user.xml`**: o cliente cria `release\user.xml` sozinho numa pasta limpa, sem `Id`. Nenhum seed necessário; o
+  hard guard fica como está.
+- **`UseSteamClient="NO"`** em `release\client.xml`: login e mapa funcionam sem Steam (o servidor não valida o
+  encrypted app ticket). Com `YES`, o `Client_tos.exe` carrega `TosSteamClient.dll` → `steam_api.dll` (Valve, genuíno)
+  e sai se a Steam não estiver aberta. Com `NO`, `TosSteamClient.dll`, `steam_api.dll`, `steamclient.dll`,
+  `sdkencryptedappticket.dll` e `steam_appid.txt` viram peso morto (~10 MB) e estão nos `excludes` — o cliente só
+  os alcança por `LoadLibrary` dentro do bloco que `NO` pula; nada os importa estaticamente. Original guardado em
+  `C:\tree of savior servers\client.xml.bak-usesteam-yes`.
+- **`release\patch\updater.config.xml`**: a URL `Revisions` é usada só pelo `packet::CheckClient` (busca
+  `partial/data.revision.txt` e `partial/release.revision.txt` por HTTP e manda os números ao barrack). Host da IMC
+  morto → manda 0/0; o servidor aceita. `Notice`/`Home` são do `tos.exe` (updater antigo), ignorados pelo cliente.
 
 ## Avisos conhecidos
 

@@ -5,6 +5,14 @@ import { z } from 'zod'
 /** Globs dropped from every release unless the operator overrides `excludes`. */
 export const DEFAULT_EXCLUDES: readonly string[] = ['release/patch/', '_CommonRedist/']
 
+/**
+ * Paths that ship despite `excludes`. `gecfg::InitConfig` in Client_tos.exe
+ * opens `patch/updater.config.xml` for its `Config/URL[@Key="Revisions"]`
+ * and aborts with "Can't load config files" when it is missing; nothing else
+ * under `release/patch/` (IMC's updater, DirectX cabs, bitmaps) is read.
+ */
+export const DEFAULT_INCLUDES: readonly string[] = ['release/patch/updater.config.xml']
+
 /** Files the launcher writes once and never touches again (the game rewrites them). */
 export const DEFAULT_SEED_ONCE: readonly string[] = [
   'release/uilayout.xml',
@@ -29,6 +37,13 @@ const configSchema = z.object({
    * a pattern with no `/` at all matches that file name at any depth.
    */
   excludes: z.array(z.string().min(1)).default([...DEFAULT_EXCLUDES]),
+  /**
+   * Exact game-relative paths (no globs) published even when an `excludes`
+   * pattern matches them. Never overrides the hard guard. Lets a whole
+   * directory stay excluded while one file inside it ships — the client
+   * refuses to start without `release/patch/updater.config.xml`.
+   */
+  includes: z.array(z.string().min(1)).default([...DEFAULT_INCLUDES]),
   /** Game-relative paths published as Seed-once instead of Managed. */
   seedOnce: z.array(z.string().min(1)).default([...DEFAULT_SEED_ONCE]),
   /** Hash cache file; relative paths resolve against the config file's directory. */

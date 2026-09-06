@@ -100,6 +100,8 @@ export interface WalkedFile {
 
 export interface WalkOptions {
   excludes: readonly string[]
+  /** Exact game-relative paths that beat `excludes` (never the hard guard). */
+  includes?: readonly string[]
   /** Absolute paths to skip regardless of rules (e.g. the hash cache if it lives inside the folder). */
   skipAbsolute?: readonly string[]
 }
@@ -115,8 +117,16 @@ export async function walkGameDir(dir: string, opts: WalkOptions): Promise<Walke
   if (!st?.isDirectory()) throw new Error(`${dir} is not a directory`)
 
   const excludes = opts.excludes.map(globToRegExp)
+  const includes = new Set((opts.includes ?? []).map((p) => p.replace(/\\/g, '/').toLowerCase()))
   const skip = new Set((opts.skipAbsolute ?? []).map((p) => resolve(p).toLowerCase()))
-  const dropped = (rel: string) => isHardGuarded(rel) || excludes.some((re) => re.test(rel))
+  const dropped = (rel: string) =>
+    isHardGuarded(rel) || (!includes.has(rel.toLowerCase()) && excludes.some((re) => re.test(rel)))
+  // an excluded directory must still be walked when an include lives inside it
+  const holdsInclude = (relDir: string) => {
+    const prefix = `${relDir.toLowerCase()}/`
+    for (const inc of includes) if (inc.startsWith(prefix)) return true
+    return false
+  }
 
   const out: WalkedFile[] = []
   const visit = async (absDir: string, relDir: string): Promise<void> => {
@@ -127,7 +137,7 @@ export async function walkGameDir(dir: string, opts: WalkOptions): Promise<Walke
       if (e.isDirectory()) {
         // a directory is prunable when every file under it would be dropped:
         // the guard/exclude rules for `dir/` match `dir/anything` too
-        if (dropped(`${rel}/probe`) && dropped(`${rel}/a/probe`)) continue
+        if (dropped(`${rel}/probe`) && dropped(`${rel}/a/probe`) && !holdsInclude(rel)) continue
         await visit(abs, rel)
       } else if (e.isFile()) {
         if (dropped(rel) || skip.has(abs.toLowerCase())) continue
