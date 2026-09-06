@@ -143,3 +143,7 @@ Escolha o domínio público (ex.: `patch.yufa.com.br`) e substitua `REPLACE_WITH
   60 MB com `curl.exe --aws-sigv4` numa chave `_probe/…` (apague depois; o `gc` não mexe nela). Alternativa se o
   WARP falhar: rodar o CLI do droplet (`auth`, `209.38.79.184`).
   `YUFA_PART_MIB` / `YUFA_UPLOAD_QUEUE` ajustam tamanho e paralelismo das partes multipart (padrão 64 MiB × 4).
+- **Objetos acima de 512 MB não entram no cache da Cloudflare** no plano Free (`cf-cache-status: BYPASS`, os
+  demais `MISS`→`HIT`): cada download desses vai direto ao R2. No Build 1 são 8 arquivos, 9,6 GB dos 12,7 GB
+  (`bg_hi*`, `char_hi`, `char_texture`, `ui`, os dois `patch\112100x`). Egress do R2 é grátis, só perde o edge;
+  Range (206) funciona igual. Limite sobe para 5 GB no Business.
