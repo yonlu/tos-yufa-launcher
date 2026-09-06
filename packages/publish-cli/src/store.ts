@@ -115,8 +115,13 @@ export class LocalDirStore implements PublishStore {
   }
 }
 
-/** 64 MiB parts: 13 GB fits well under S3's 10 000-part limit, and each part retries on its own. */
-const MULTIPART_PART_SIZE = 64 * 1024 * 1024
+/**
+ * 64 MiB parts: 13 GB fits well under S3's 10 000-part limit, and each part
+ * retries on its own. YUFA_PART_MIB / YUFA_UPLOAD_QUEUE tune part size and
+ * how many parts are in flight, for links that misbehave under load.
+ */
+const MULTIPART_PART_SIZE = (Number(process.env['YUFA_PART_MIB']) || 64) * 1024 * 1024
+const MULTIPART_QUEUE = Number(process.env['YUFA_UPLOAD_QUEUE']) || 4
 
 /** Cloudflare R2 via its S3-compatible API. Credentials come only from env. */
 export class R2Store implements PublishStore {
@@ -158,7 +163,7 @@ export class R2Store implements PublishStore {
         CacheControl: opts?.cacheControl,
       },
       partSize: MULTIPART_PART_SIZE,
-      queueSize: 4,
+      queueSize: MULTIPART_QUEUE,
       leavePartsOnError: false,
     })
     await upload.done()
