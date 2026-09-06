@@ -132,7 +132,7 @@ export class R2Store implements PublishStore {
     const accessKeyId = process.env['R2_ACCESS_KEY_ID']
     const secretAccessKey = process.env['R2_SECRET_ACCESS_KEY']
     if (!accessKeyId || !secretAccessKey) {
-      throw new Error('R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY must be set (or use --local-out/--dry-run)')
+      throw new Error('R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY must be set (--dry-run still reads the bucket; use --local-out for a creds-free run)')
     }
     this.bucket = cfg.bucket
     this.client = new S3Client({

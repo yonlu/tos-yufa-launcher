@@ -116,6 +116,10 @@ Escolha o domínio público (ex.: `patch.yufa.com.br`) e substitua `REPLACE_WITH
 - **`release\patch\updater.config.xml`**: a URL `Revisions` é usada só pelo `packet::CheckClient` (busca
   `partial/data.revision.txt` e `partial/release.revision.txt` por HTTP e manda os números ao barrack). Host da IMC
   morto → manda 0/0; o servidor aceita. `Notice`/`Home` são do `tos.exe` (updater antigo), ignorados pelo cliente.
+- **Runtimes**: os seis arquivos do passo 4 vieram de `ClassicV1\_CommonRedist` (a pasta que o `excludes` tira do
+  release): `vcredist\vcredist_v14.x86.exe` (14.51.36247, mais novo que o `VC_redist.x86.exe` ao lado, 14.50)
+  copiado como `vc_redist.x86.exe`, e `DirectX\Jun2010\` para os cinco do DirectX. Pasta montada em
+  `C:\tree of savior servers\redist-publish`; publicada em 2026-09-06.
 
 ## Avisos conhecidos
 
@@ -130,3 +134,12 @@ Escolha o domínio público (ex.: `patch.yufa.com.br`) e substitua `REPLACE_WITH
   aponta a pasta em Procurar (vira "Continuar instalação" e o `check` só confere, nada é baixado de novo).
 - Self-update tenta download **diferencial** (blockmap) e cai para download completo se o host não
   suportar multipart ranges — comportamento verificado e aceitável (~100 MB por update de launcher).
+- **Uploads da máquina do operador para a Cloudflare corrompem sem WARP** (Wi-Fi MediaTek MT7927 + Comcast,
+  peering direto com a Cloudflare no hop 7): qualquer upload HTTPS sustentado para a rede da Cloudflare (R2,
+  `speed.cloudflare.com`, hosts atrás da Cloudflare) falha com `bad record mac` / `SEC_E_MESSAGE_ALTERED` entre
+  10 e 180 MB; uploads para a AWS e todos os downloads são limpos. Não é Node, TLS 1.2/1.3, concorrência, taxa,
+  IPv4/IPv6 nem MTU. **Com o Cloudflare WARP conectado, tudo passa** (60 MB em 9 s, release inteiro limpo).
+  Antes de `release`, `redist push` ou `launcher`: `warp-cli status` → `Connected`. Sonda de 1 minuto: PUT de
+  60 MB com `curl.exe --aws-sigv4` numa chave `_probe/…` (apague depois; o `gc` não mexe nela). Alternativa se o
+  WARP falhar: rodar o CLI do droplet (`auth`, `209.38.79.184`).
+  `YUFA_PART_MIB` / `YUFA_UPLOAD_QUEUE` ajustam tamanho e paralelismo das partes multipart (padrão 64 MiB × 4).
