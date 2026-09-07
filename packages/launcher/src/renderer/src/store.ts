@@ -109,6 +109,8 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   async play() {
     set({ launching: true })
     const result = await window.yufa.gameLaunch()
+    // the Compatibility fix was reconciled before the client started; its outcome shows where a ready's would
+    if (result.dxvk) set((s) => ({ patcher: { ...s.patcher, dxvk: result.dxvk } }))
     if (!result.ok) {
       set({ launching: false })
       if (result.error) set({ patcher: { state: 'error', error: result.error } })

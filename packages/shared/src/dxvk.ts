@@ -31,6 +31,3 @@ export const DXVK_SHA256 = '98c9650200a3ec6009ec2d45c6f9de55c25cafeb9f52c9d9f2c3
 
 /** Hashes of `d3d9.dll` from earlier launcher releases: still ours, so disable removes them and enable upgrades them. */
 export const DXVK_PREVIOUS_SHA256: readonly string[] = []
-
-/** Every hash the launcher accepts as its own file. */
-export const DXVK_KNOWN_SHA256: readonly string[] = [DXVK_SHA256, ...DXVK_PREVIOUS_SHA256]

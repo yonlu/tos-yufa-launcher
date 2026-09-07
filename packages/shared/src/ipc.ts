@@ -23,6 +23,8 @@ export const IPC = {
   windowMinimize: 'window:minimize',
   windowClose: 'window:close',
   updaterInstall: 'updater:install',
+  dxvkEnable: 'dxvk:enable',
+  dxvkDisable: 'dxvk:disable',
   // main → renderer events
   patcherState: 'patcher:state',
   patcherProgress: 'patcher:progress',
@@ -57,6 +59,12 @@ export type ErrorCode =
   | 'av-suspected'
   | 'elevation-declined'
   | 'redist-failed'
+  /** A `release/d3d9.dll` the launcher did not put there (message: its path). The Compatibility fix leaves it alone. */
+  | 'foreign-dll'
+  /** The Compatibility fix could not be placed or removed for a reason other than the file being foreign. */
+  | 'dxvk-failed'
+  /** The patcher is mid-run; try again once it settles. */
+  | 'busy'
 
 export interface ErrorInfo {
   code: ErrorCode
@@ -88,10 +96,30 @@ export interface RedistStatus {
   error?: ErrorInfo
 }
 
+/**
+ * What one Compatibility fix operation (CONTEXT.md, ADR 0003) did to
+ * `release/d3d9.dll`. `installed`, `upgraded` and `present` are enable
+ * outcomes; `removed` and `absent` are disable outcomes; `foreign` means a
+ * file the launcher does not recognise sits there and was left alone;
+ * `failed` means the operation was refused (game running, patcher busy) or
+ * hit a filesystem error. Never a block on Play.
+ */
+export type DxvkOutcome = 'installed' | 'upgraded' | 'present' | 'removed' | 'absent' | 'foreign' | 'failed'
+
+export interface DxvkResult {
+  outcome: DxvkOutcome
+  /** The switch (Settings' amdCompatibilityEnabled) after the operation. */
+  enabled: boolean
+  /** With `foreign`: foreign-dll and the file's path. With `failed`: game-running, busy, file-locked or dxvk-failed. */
+  error?: ErrorInfo
+}
+
 export interface PatcherStateEvent {
   state: PatcherStateName
   error?: ErrorInfo
   redist?: RedistStatus
+  /** With state 'ready' or 'up-to-date' and the Compatibility fix switched on: what reconciling it did. */
+  dxvk?: DxvkResult
   /** With state 'error' code 'offline': the Install Record says the Build is complete, Play may be offered. */
   offlinePlayable?: boolean
   /** With state 'update-available': the Install Record is not complete, so this update finishes an interrupted install. */
@@ -180,6 +208,8 @@ export interface NewsResult {
 export interface LaunchResult {
   ok: boolean
   error?: ErrorInfo
+  /** The Compatibility fix is reconciled before the client starts; with the switch on, what that did. A warning at most. */
+  dxvk?: DxvkResult
 }
 
 /** The surface preload exposes as window.yufa. */
@@ -209,6 +239,10 @@ export interface YufaApi {
   windowMinimize(): void
   windowClose(): void
   updaterInstall(): Promise<void>
+  /** Switches the Compatibility fix on: places `release/d3d9.dll` and sets the flag, or says why not. */
+  dxvkEnable(): Promise<DxvkResult>
+  /** Switches the Compatibility fix off: clears the flag and removes the file when it is the launcher's own. */
+  dxvkDisable(): Promise<DxvkResult>
   onPatcherState(cb: (e: PatcherStateEvent) => void): () => void
   onPatcherProgress(cb: (e: PatcherProgressEvent) => void): () => void
   onUpdaterStatus(cb: (e: UpdaterStatusEvent) => void): () => void

@@ -7,6 +7,7 @@ import {
   filesToHash,
   manifestSchema,
   type CheckMode,
+  type DxvkResult,
   orderDownloads,
   patchArchiveRevision,
   type ErrorInfo,
@@ -63,6 +64,13 @@ export interface PatcherDeps {
    * from Settings; absent in tests that do not care.
    */
   ensureRuntimes?: (hooks: RuntimeHooks) => Promise<RedistStatus>
+  /**
+   * The Compatibility fix's reconcile (dxvk.ts): makes `release/d3d9.dll`
+   * follow the switch. Run on the way to ready and up-to-date, inside the
+   * run, so it never races a download; its outcome rides on the event as
+   * `dxvk` and a failure is a warning there. Absent in tests that do not care.
+   */
+  reconcileDxvk?: () => Promise<DxvkResult | undefined>
 }
 
 export interface RuntimeHooks {
@@ -133,6 +141,11 @@ export class Patcher {
 
   get loadedManifest(): Manifest | null {
     return this.situation?.manifest ?? null
+  }
+
+  /** A run is in progress (or the Redistributable flow is): anything else that touches the game folder waits. */
+  get busy(): boolean {
+    return BUSY_STATES.has(this.lastState.state) || this.runtimesRunning
   }
 
   async check(): Promise<PatcherStateEvent> {
@@ -235,7 +248,7 @@ export class Patcher {
       if (record && (!record.completed || record.build !== manifest.build)) {
         await writeInstallRecord(this.paths, { ...record, build: manifest.build, completed: true })
       }
-      return this.setState({ state: 'up-to-date', plan: summary })
+      return this.setState({ state: 'up-to-date', plan: summary, dxvk: await this.deps.reconcileDxvk?.() })
     }
     // no complete record: an interrupted install/update, or a located bare client — the UI offers Resume
     return this.setState({ state: 'update-available', plan: summary, installIncomplete: record?.completed !== true })
@@ -339,8 +352,12 @@ export class Patcher {
       // not ask again. (Resuming an interrupted update probes too — cheap, and
       // the probe finds the DLLs present.)
       const redist = situation.record?.completed === true ? undefined : await this.runRuntimes()
+      // The fix is outside the Manifest and the Install Record, so a Build that
+      // touched nothing near it still gets it re-applied here (a quarantined
+      // file comes back, a pin bump upgrades it).
+      const dxvk = await this.deps.reconcileDxvk?.()
       this.situation = null
-      return this.setState({ state: 'ready', plan: summary, redist })
+      return this.setState({ state: 'ready', plan: summary, redist, dxvk })
     } catch (err) {
       return this.handleUpdateError(err, state)
     } finally {

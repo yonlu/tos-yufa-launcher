@@ -4,6 +4,7 @@ import log from 'electron-log/main'
 import {
   IPC,
   type AppInfo,
+  type DxvkResult,
   type ErrorInfo,
   type GpuDetection,
   type LaunchResult,
@@ -12,7 +13,9 @@ import {
   type RedistStatus,
   type Settings,
 } from '@yufa/shared'
+import { bundledDxvkPath } from './bundledDxvk'
 import { DEFAULT_INSTALL_DIR, FALLBACK_NEWS_URL, LAUNCHER_FEED_URL, MANIFEST_URL, REDIST_INDEX_URL } from './constants'
+import { Dxvk } from './dxvk'
 import { isGameRunning, launchGame } from './game'
 import { describeGpu, detectAmdGpu, noGpu } from './gpu'
 import { validateInstallPath } from './installPath'
@@ -57,6 +60,19 @@ async function bootstrap(): Promise<void> {
   const electronFetch = ((input: string | URL | Request, init?: RequestInit) =>
     net.fetch(input as string, init)) as typeof fetch
 
+  // The Compatibility fix (ADR 0003). Reads the game folder and the switch
+  // on every operation, so it outlives the patcher rebuilt on a folder change.
+  const dxvk = new Dxvk({
+    gameDir: () => settings.get().gamePath,
+    bundledDll: bundledDxvkPath(app),
+    flag: {
+      get: () => settings.get().amdCompatibilityEnabled,
+      set: (on) => void settings.set({ amdCompatibilityEnabled: on }),
+    },
+    isGameRunning,
+    isPatcherBusy: () => patcher.busy,
+  })
+
   let patcher = buildPatcher()
   function buildPatcher(): Patcher {
     const gameDir = settings.get().gamePath
@@ -67,6 +83,7 @@ async function bootstrap(): Promise<void> {
       fetchImpl: electronFetch,
       downloadConcurrency: () => settings.get().downloadConcurrency,
       isGameRunning,
+      reconcileDxvk: () => dxvk.reconcile(),
       ensureRuntimes: (hooks) =>
         ensureRedistributables({
           probe: probeWindowsRuntimes,
@@ -77,7 +94,9 @@ async function bootstrap(): Promise<void> {
           ...hooks,
         }),
       onState: (e: PatcherStateEvent) => {
-        log.info(`patcher: ${e.state}${describeError(e.error)}${e.redist ? describeRedist(e.redist) : ''}`)
+        log.info(
+          `patcher: ${e.state}${describeError(e.error)}${e.redist ? describeRedist(e.redist) : ''}${e.dxvk ? describeDxvk(e.dxvk) : ''}`,
+        )
         send(IPC.patcherState, e)
         // e2e hook: YUFA_AUTO=update installs/downloads on its own; =play also launches
         const auto = process.env['YUFA_AUTO']
@@ -138,6 +157,11 @@ async function bootstrap(): Promise<void> {
     }
     if (await isGameRunning()) return { ok: false, error: { code: 'game-running' } }
 
+    // The fix follows the switch right before the client loads d3d9.dll; a
+    // failure here is a warning on the result, never a reason not to launch.
+    const fix = await dxvk.reconcile()
+    if (fix) log.info(`game launch:${describeDxvk(fix)}`)
+
     // test/e2e hook: launch a real client while patching runs against a sandbox game dir
     const paths = gamePaths(s.gamePath)
     const launchExe = process.env['YUFA_LAUNCH_EXE']
@@ -151,10 +175,21 @@ async function bootstrap(): Promise<void> {
       if (s.afterLaunch === 'quit') setTimeout(() => app.quit(), 1500)
       else if (s.afterLaunch === 'minimize') win?.minimize()
     }
-    return result
+    return fix ? { ...result, dxvk: fix } : result
   }
 
   ipcMain.handle(IPC.gameLaunch, () => doLaunch())
+
+  ipcMain.handle(IPC.dxvkEnable, async (): Promise<DxvkResult> => {
+    const result = await dxvk.enable()
+    log.info(`dxvk enable:${describeDxvk(result)}`)
+    return result
+  })
+  ipcMain.handle(IPC.dxvkDisable, async (): Promise<DxvkResult> => {
+    const result = await dxvk.disable()
+    log.info(`dxvk disable:${describeDxvk(result)}`)
+    return result
+  })
 
   ipcMain.handle(IPC.settingsGet, (): Settings => settings.get())
   ipcMain.handle(IPC.settingsSet, (_e, partial: Partial<Settings>): Settings => {
@@ -268,6 +303,10 @@ function describeError(error: ErrorInfo | undefined): string {
 
 function describeRedist(r: RedistStatus): string {
   return ` [runtimes ${r.status}${r.missing.length ? ` ${r.missing.join('+')}` : ''}${describeError(r.error)}]`
+}
+
+function describeDxvk(d: DxvkResult): string {
+  return ` [dxvk ${d.outcome}, switch ${d.enabled ? 'on' : 'off'}${describeError(d.error)}]`
 }
 
 async function detectGamePath(): Promise<string> {

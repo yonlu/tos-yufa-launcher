@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import headBg from './assets/head_bg.png'
 import headLeaves from './assets/head_leaves.png'
+import { CompatibilityFixWarning } from './components/CompatibilityFixWarning'
 import { ErrorBanner } from './components/ErrorBanner'
 import { InstallPanel } from './components/InstallPanel'
 import { NewsPanel } from './components/NewsPanel'
@@ -50,6 +51,7 @@ export default function App() {
             </div>
             <InstallPanel />
             <RuntimeWarning />
+            <CompatibilityFixWarning />
             <ErrorBanner />
           </section>
           <div className="animate-fade-up flex opacity-0" style={{ animationDelay: '0.3s' }}>

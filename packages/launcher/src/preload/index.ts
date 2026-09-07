@@ -40,6 +40,8 @@ const api: YufaApi = {
     void ipcRenderer.invoke(IPC.windowClose)
   },
   updaterInstall: () => ipcRenderer.invoke(IPC.updaterInstall),
+  dxvkEnable: () => ipcRenderer.invoke(IPC.dxvkEnable),
+  dxvkDisable: () => ipcRenderer.invoke(IPC.dxvkDisable),
   onPatcherState: on<PatcherStateEvent>(IPC.patcherState),
   onPatcherProgress: on<PatcherProgressEvent>(IPC.patcherProgress),
   onUpdaterStatus: on<UpdaterStatusEvent>(IPC.updaterStatus),
