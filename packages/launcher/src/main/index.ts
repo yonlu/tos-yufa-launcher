@@ -12,7 +12,9 @@ import {
   type PatcherStateEvent,
   type RedistStatus,
   type Settings,
+  type SettingsSetResult,
 } from '@yufa/shared'
+import { bootSettings } from './boot'
 import { bundledDxvkPath } from './bundledDxvk'
 import { DEFAULT_INSTALL_DIR, FALLBACK_NEWS_URL, LAUNCHER_FEED_URL, MANIFEST_URL, REDIST_INDEX_URL } from './constants'
 import { Dxvk } from './dxvk'
@@ -24,11 +26,12 @@ import { fetchNews } from './news'
 import { Patcher } from './patcher'
 import { ensureRedistributables, probeWindowsRuntimes, runInstallersElevated } from './redist'
 import { initSelfUpdate, type SelfUpdater } from './selfUpdate'
-import { SettingsStore } from './settings'
 import { createMainWindow } from './window'
 
-// test/e2e hook: isolate settings & logs per run
-if (process.env['YUFA_USERDATA']) app.setPath('userData', process.env['YUFA_USERDATA'])
+// Before ready, synchronously (see bootSettings): the YUFA_USERDATA test hook, the settings store,
+// hardware acceleration off when the player switched it off. Nothing here may await.
+const boot = bootSettings(app, process.env)
+const settings = boot.settings
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -41,14 +44,15 @@ async function bootstrap(): Promise<void> {
   await app.whenReady()
 
   log.initialize()
-  log.info(`launcher ${app.getVersion()} starting (manifest: ${MANIFEST_URL})`)
+  log.info(
+    `launcher ${app.getVersion()} starting (manifest: ${MANIFEST_URL}, hardware acceleration ${boot.hardwareAcceleration ? 'on' : 'off'})`,
+  )
 
   // Kicked off now so the answer is usually in hand when the renderer asks for app info.
   // test/e2e hook: YUFA_GPU=amd lists an AMD adapter so the prompt and the switch can be photographed on any machine
   const gpuDetection = process.env['YUFA_GPU'] === 'amd' ? Promise.resolve(pretendAmdGpu()) : probeGpu()
 
   // Without a known game folder the install panel targets the publisher default.
-  const settings = new SettingsStore(app.getPath('userData'))
   if (!settings.get().gamePath) {
     settings.set({ gamePath: (await detectGamePath()) || DEFAULT_INSTALL_DIR })
   }
@@ -201,11 +205,11 @@ async function bootstrap(): Promise<void> {
   })
 
   ipcMain.handle(IPC.settingsGet, (): Settings => settings.get())
-  ipcMain.handle(IPC.settingsSet, (_e, partial: Partial<Settings>): Settings => {
+  ipcMain.handle(IPC.settingsSet, (_e, partial: Partial<Settings>): SettingsSetResult => {
     const before = settings.get().gamePath
     const after = settings.set(partial)
     if (after.gamePath !== before) patcher = buildPatcher()
-    return after
+    return { settings: after, restartRequired: boot.restartRequired() }
   })
   ipcMain.handle(IPC.settingsSelectGamePath, async (_e, title: string) => {
     const result = await dialog.showOpenDialog({

@@ -17,7 +17,8 @@ import type {
  * ?mock=not-installed[&partial][&nospace], ?mock=resume, ?mock=runtimes, &redist=failed|declined
  * (warning on a ready launcher), &amd=1 (an AMD adapter in the GPU list; the prompt shows on ready unless
  * &prompted), &dxvk=on (the Compatibility fix switched on) or &dxvk=foreign (a d3d9.dll the launcher does not
- * recognise blocks it), &view=settings (Settings open on start). Every UI state can be exercised without
+ * recognise blocks it), &hwaccel=off (hardware acceleration switched off at "boot", so switching it back on asks
+ * for a restart), &view=settings (Settings open on start). Every UI state can be exercised without
  * Electron or a patch server.
  */
 export function installMockIfNeeded(): void {
@@ -39,9 +40,13 @@ export function installMockIfNeeded(): void {
     afterLaunch: 'quit',
     downloadConcurrency: 2,
     allowOfflinePlay: true,
+    hardwareAcceleration: params.get('hwaccel') !== 'off',
     amdCompatibilityEnabled: params.get('dxvk') === 'on',
     amdCompatibilityPrompted: params.has('prompted'),
   }
+
+  /** What this "process" started with: the real main compares every save against it. */
+  const bootHardwareAcceleration = settings.hardwareAcceleration
 
   /** ?amd=1 puts a Radeon next to the integrated adapter, the hybrid-laptop case the prompt exists for. */
   const gpu: GpuDetection = params.has('amd')
@@ -221,7 +226,10 @@ export function installMockIfNeeded(): void {
       return dxvk ? { ok: true, dxvk } : { ok: true }
     },
     settingsGet: async () => settings,
-    settingsSet: async (p) => Object.assign(settings, p),
+    settingsSet: async (p) => ({
+      settings: Object.assign(settings, p),
+      restartRequired: settings.hardwareAcceleration !== bootHardwareAcceleration,
+    }),
     settingsSelectGamePath: async () => ({ path: 'C:\\mock\\path', valid: params.get('badpath') === null }),
     installDefaultPath: async () => DEFAULT_INSTALL_DIR,
     installValidatePath: async (path) => {

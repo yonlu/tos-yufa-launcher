@@ -8,7 +8,8 @@ import { useLauncher } from '../store'
 import { CompatibilityFixRefusal } from './CompatibilityFixRefusal'
 
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { settings, gpu, saveSettings, selectGamePath, repair, checkRuntimes, setCompatibilityFix } = useLauncher()
+  const { settings, restartRequired, gpu, saveSettings, selectGamePath, repair, checkRuntimes, setCompatibilityFix } =
+    useLauncher()
   const { t } = useTranslation()
   const [invalidPath, setInvalidPath] = useState(false)
   // the Compatibility fix switch: what the last enable or disable said, shown under its row
@@ -123,6 +124,22 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
             />
             {t('settings.allowOffline')}
           </label>
+
+          <div>
+            <label className="flex cursor-pointer items-start gap-2 text-sm text-tos-brown">
+              <input
+                type="checkbox"
+                checked={settings.hardwareAcceleration}
+                onChange={(e) => void saveSettings({ hardwareAcceleration: e.target.checked })}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-tos-orange"
+              />
+              <span>
+                <span className="block">{t('settings.hardwareAcceleration')}</span>
+                <span className="mt-0.5 block text-xs text-tos-brown-muted">{t('settings.hardwareAccelerationHint')}</span>
+              </span>
+            </label>
+            {restartRequired && <p className="mt-1 pl-6 text-xs text-tos-burgundy">{t('settings.restartRequired')}</p>}
+          </div>
 
           <div className="rounded-tos-panel border border-tos-border bg-tos-tan/60 p-3">
             <label className="flex cursor-pointer items-start gap-2 text-sm text-tos-brown">

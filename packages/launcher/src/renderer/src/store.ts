@@ -19,6 +19,8 @@ interface LauncherStore {
   progress: PatcherProgressEvent | null
   updater: UpdaterStatusEvent
   settings: Settings | null
+  /** A saved setting (hardware acceleration) only takes effect after the launcher restarts. */
+  restartRequired: boolean
   news: NewsResult | null
   version: string
   /** What main found in the GPU list; null until app info arrives. */
@@ -57,6 +59,7 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   progress: null,
   updater: { status: 'none' },
   settings: null,
+  restartRequired: false,
   news: null,
   version: '',
   gpu: null,
@@ -125,8 +128,8 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   },
 
   async saveSettings(partial) {
-    const settings = await window.yufa.settingsSet(partial)
-    set({ settings })
+    const { settings, restartRequired } = await window.yufa.settingsSet(partial)
+    set({ settings, restartRequired })
     if (partial.language) await i18n.changeLanguage(settings.language)
     if (partial.gamePath !== undefined) await get().check()
   },

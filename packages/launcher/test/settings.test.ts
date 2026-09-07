@@ -71,3 +71,30 @@ describe('SettingsStore: Compatibility fix fields (ADR 0003)', () => {
     expect(s.amdCompatibilityPrompted).toBe(true)
   })
 })
+
+describe('SettingsStore: hardwareAcceleration', () => {
+  it('defaults to true on first run', () => {
+    expect(new SettingsStore(userData).get().hardwareAcceleration).toBe(true)
+  })
+
+  it('a config.json written before the field existed reads as true', async () => {
+    await writeFile(join(userData, 'config.json'), JSON.stringify({ gamePath: 'C:\\tos' }))
+    expect(new SettingsStore(userData).get().hardwareAcceleration).toBe(true)
+  })
+
+  it('only a real false switches it off; corrupt values fall back to true', async () => {
+    for (const corrupt of ['false', 0, null, 'off']) {
+      await writeFile(join(userData, 'config.json'), JSON.stringify({ hardwareAcceleration: corrupt }))
+      expect(new SettingsStore(userData).get().hardwareAcceleration, `stored ${JSON.stringify(corrupt)}`).toBe(true)
+    }
+    await writeFile(join(userData, 'config.json'), JSON.stringify({ hardwareAcceleration: false }))
+    expect(new SettingsStore(userData).get().hardwareAcceleration).toBe(false)
+  })
+
+  it('round-trips false through set and a fresh load', () => {
+    const store = new SettingsStore(userData)
+    expect(store.set({ hardwareAcceleration: false }).hardwareAcceleration).toBe(false)
+    expect(new SettingsStore(userData).get().hardwareAcceleration).toBe(false)
+    expect(store.set({ hardwareAcceleration: 'yes' as never }).hardwareAcceleration).toBe(true)
+  })
+})

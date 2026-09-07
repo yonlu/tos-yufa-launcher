@@ -164,10 +164,22 @@ export interface Settings {
   afterLaunch: 'quit' | 'minimize' | 'stay'
   downloadConcurrency: 1 | 2 | 3
   allowOfflinePlay: boolean
+  /**
+   * Chromium's GPU compositing for the launcher window itself, not the game. Off is the answer to a black or
+   * flickering window on an old or flaky GPU. Applied once, before `app.whenReady`, so a change needs a restart.
+   */
+  hardwareAcceleration: boolean
   /** The Compatibility fix (ADR 0003) is on. The switch is the only state; the file follows it. */
   amdCompatibilityEnabled: boolean
   /** The one-time AMD prompt has been answered, either way. */
   amdCompatibilityPrompted: boolean
+}
+
+/** What `settings:set` answers: the sanitised settings, and whether a saved value only takes effect after a restart. */
+export interface SettingsSetResult {
+  settings: Settings
+  /** `hardwareAcceleration` now differs from the value this process started with. */
+  restartRequired: boolean
 }
 
 /** One adapter from `app.getGPUInfo('basic')`, PCI ids normalised to lowercase `0x` hex; null when unreadable. */
@@ -222,7 +234,7 @@ export interface YufaApi {
   patcherCheckRuntimes(): Promise<void>
   gameLaunch(): Promise<LaunchResult>
   settingsGet(): Promise<Settings>
-  settingsSet(partial: Partial<Settings>): Promise<Settings>
+  settingsSet(partial: Partial<Settings>): Promise<SettingsSetResult>
   /** "Locate existing install": directory picker titled by the renderer's locale; adopts the folder when valid. */
   settingsSelectGamePath(title: string): Promise<{ path: string; valid: boolean } | null>
   /** The publisher-conventional folder a first install is offered in. */

@@ -96,6 +96,10 @@ No lado do jogador, `src/main/dxvk.ts` faz o arquivo seguir a chave `amdCompatib
 
 Do lado da UI: no primeiro `ready` ou `up-to-date` com Install Record completo, se há uma placa AMD na lista (`app.getGPUInfo`, qualquer adaptador, ativo ou não) e `amdCompatibilityPrompted` ainda é falso, um modal oferece Ativar ou Agora não. A chave `amdCompatibilityPrompted` liga de qualquer jeito, inclusive quando a correção já tinha sido ligada pelas Configurações antes (aí nada aparece). Uma recusa do Ativar (`foreign-dll`, jogo aberto) fica no próprio modal; a chave nas Configurações é o jeito de tentar de novo. Nas Configurações, ao lado de jogar offline até a caixa de diálogo com seções existir, a chave vem com uma linha de explicação, a placa detectada, a atribuição do DXVK (licença zlib, `LICENSE` no pacote) e, embaixo, o motivo da última recusa. No dev harness do renderer: `?mock=up-to-date&amd=1` mostra o prompt, `&prompted` pula, `&dxvk=on` começa ligado, `&dxvk=foreign` faz o enable recusar, `&view=settings` abre as Configurações.
 
+### Aceleração de hardware
+
+A chave `hardwareAcceleration` das configurações (padrão ligada) é o remédio para a janela preta ou piscando em placas antigas: desligada, o launcher chama `app.disableHardwareAcceleration()` antes do `whenReady`, o que obriga `src/main/boot.ts` a ler o `config.json` de forma síncrona logo no início do processo, depois do gancho `YUFA_USERDATA` e antes de qualquer outra coisa. A chave só vale para a janela do launcher, não para o jogo. Como a decisão é tomada no boot, `settings:set` devolve `{ settings, restartRequired }`, e `restartRequired` fica verdadeiro enquanto o valor salvo for diferente do que o processo abriu com; a caixa nas Configurações mostra a nota de reinício embaixo. No dev harness, `?view=settings&hwaccel=off` começa com a chave desligada.
+
 Trocar de versão do DXVK é uma release do launcher: atualize `DXVK_VERSION` e `DXVK_SHA256`, mova o hash antigo para `DXVK_PREVIOUS_SHA256` (o launcher continua reconhecendo o arquivo que uma versão anterior instalou) e rode `fetch-dxvk` de novo.
 
 ## Contrato de patch (cliente ToS)
