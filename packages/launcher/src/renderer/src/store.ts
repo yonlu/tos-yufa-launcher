@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type {
+  DxvkResult,
   GpuDetection,
   InstallPathCheck,
   NewsResult,
@@ -36,6 +37,12 @@ interface LauncherStore {
   cancel(): Promise<void>
   play(): Promise<void>
   saveSettings(p: Partial<Settings>): Promise<void>
+  /**
+   * The Compatibility fix switch. Main places or removes the file and moves
+   * the flag; settings are re-read afterwards. The result comes back for the
+   * caller to show in place (a refusal under the switch, or in the prompt).
+   */
+  setCompatibilityFix(on: boolean): Promise<DxvkResult>
   selectGamePath(): Promise<{ path: string; valid: boolean } | null>
   setInstallPath(path: string): void
   browseInstallPath(): Promise<void>
@@ -122,6 +129,12 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
     set({ settings })
     if (partial.language) await i18n.changeLanguage(settings.language)
     if (partial.gamePath !== undefined) await get().check()
+  },
+
+  async setCompatibilityFix(on) {
+    const result = on ? await window.yufa.dxvkEnable() : await window.yufa.dxvkDisable()
+    set({ settings: await window.yufa.settingsGet() })
+    return result
   },
 
   async selectGamePath() {

@@ -9,7 +9,7 @@ Launcher + sistema de publicação de patches para o servidor Yufa | ToS - Class
 - `packages/publish-cli` — CLI do admin (`npm run yufa-publish`): release / patch / rollback / news / verify (`--mirror <pasta>` compara hashes com a pasta local) / gc (`--keep N` apaga Blobs que nenhum dos N Builds mais recentes nem o atual referencia; nunca apaga Manifests) / redist push (`--dir <pasta>` sobe os instaladores de runtime e escreve `redist/index.json` por último) / launcher.
 - `tools/dev-server.ts` — servidor estático local com suporte a HTTP Range para testes E2E.
 - `tools/fetch-dxvk.ts` — baixa o archive oficial do DXVK, confere `x32/d3d9.dll` contra o hash fixado em `packages/shared/src/dxvk.ts` e o deixa em `packages/launcher/build/dxvk/` para o `dist`. Ver [Compatibility fix (DXVK)](#compatibility-fix-dxvk).
-- `tools/e2e-setup.ts` / `tools/e2e-smoke.ts` — sandbox E2E local: árvore de jogo falsa publicada como Build, e o ensaio automático (instalar → atualizar → rollback) com o launcher empacotado. Ver [Sandbox E2E local](#sandbox-e2e-local).
+- `tools/e2e-setup.ts` / `tools/e2e-smoke.ts` — sandbox E2E local: árvore de jogo falsa publicada como Build, e o ensaio automático (instalar → ligar a correção AMD → atualizar → rollback → desligar) com o launcher empacotado; `tools/e2e-checks.ts` guarda as conferências da pasta do jogo. Ver [Sandbox E2E local](#sandbox-e2e-local).
 
 ## Comandos
 
@@ -54,6 +54,9 @@ Aponte o launcher (dev ou empacotado) para o sandbox com variáveis de ambiente:
 | `YUFA_LAUNCH_EXE` | executável que Jogar abre (cliente real fora do sandbox) |
 | `YUFA_SCREENSHOT` (+ `_DELAY` ms) | captura a janela nesse caminho e sai — o smoke de screenshot |
 | `YUFA_REDIST_INDEX_URL`, `YUFA_LAUNCHER_FEED_URL` | índices alternativos de runtimes e de self-update |
+| `YUFA_GPU=amd` | finge uma placa AMD na lista de GPUs: o prompt da correção e a linha da placa nas Configurações aparecem em qualquer máquina |
+| `YUFA_DXVK=enable` / `disable` | liga ou desliga o Compatibility fix antes de abrir a janela, como a chave das Configurações faria |
+| `YUFA_VIEW=settings` | abre as Configurações ao iniciar (o smoke fotografa a chave) |
 
 Ciclo completo à mão:
 
@@ -67,8 +70,10 @@ Ou tudo de uma vez, com o launcher empacotado, cada etapa fotografada em `e2e-sa
 
 ```
 npm run dist
-npm run e2e        # painel de instalação → instala Build 1 → atualiza para Build 2 → rollback 1
+npm run e2e        # painel de instalação → instala Build 1 (prompt AMD) → liga a correção → atualiza para Build 2 → rollback 1 → desliga a correção
 ```
+
+Os dois últimos passos são o Compatibility fix: ligado, `release\d3d9.dll` tem o hash fixado e sobrevive à atualização e ao rollback sem entrar no Install Record; desligado, `release\` volta a ser byte a byte o que o Install Record lista (mais o `release.revision.txt`, que é do launcher). As fotos com `YUFA_GPU=amd` mostram o prompt e a chave nas Configurações, em português e em inglês.
 
 ## Launcher (instalação e self-update)
 
@@ -88,6 +93,8 @@ npm run dist                # o electron-builder copia build/dxvk para resources
 Sem a pasta preparada o `dist` falha antes de empacotar, com a mensagem dizendo para rodar o `fetch-dxvk`. O `e2e-setup` roda o `fetch-dxvk` sozinho (`--skip-dxvk` pula). No launcher, `bundledDxvkPath()` (`src/main/bundledDxvk.ts`) resolve o arquivo em `resources/dxvk/` no app empacotado e em `build/dxvk/` no modo dev.
 
 No lado do jogador, `src/main/dxvk.ts` faz o arquivo seguir a chave `amdCompatibilityEnabled` das configurações, que é o único estado da correção. `dxvk:enable` copia o DLL para `release\` (nome temporário e rename por cima) e liga a chave; com o hash atual já lá, não escreve nada; com um hash de versão anterior, substitui; com qualquer outro hash, recusa antes de escrever com o código `foreign-dll` e o caminho do arquivo, e a chave fica como estava. `dxvk:disable` desliga a chave e apaga o arquivo só quando o hash é um dos fixados; um arquivo estranho fica onde está e vira aviso. O `reconcile()` roda dentro do patcher a caminho de `ready` e `up-to-date` e antes de abrir o cliente: chave ligada, faz o mesmo que o enable (um arquivo apagado pelo antivírus volta, um pin novo atualiza o antigo); chave desligada, não faz nada. O resultado vai em `dxvk` no evento de estado e no `LaunchResult`; falha é aviso ao lado do Jogar, nunca bloqueio. As três operações recusam com o jogo aberto; enable e disable também recusam (`busy`) enquanto o patcher está no meio de uma rodada. Nenhum backup, nenhum arquivo de estado, nada novo na pasta do jogo.
+
+Do lado da UI: no primeiro `ready` ou `up-to-date` com Install Record completo, se há uma placa AMD na lista (`app.getGPUInfo`, qualquer adaptador, ativo ou não) e `amdCompatibilityPrompted` ainda é falso, um modal oferece Ativar ou Agora não. A chave `amdCompatibilityPrompted` liga de qualquer jeito, inclusive quando a correção já tinha sido ligada pelas Configurações antes (aí nada aparece). Uma recusa do Ativar (`foreign-dll`, jogo aberto) fica no próprio modal; a chave nas Configurações é o jeito de tentar de novo. Nas Configurações, ao lado de jogar offline até a caixa de diálogo com seções existir, a chave vem com uma linha de explicação, a placa detectada, a atribuição do DXVK (licença zlib, `LICENSE` no pacote) e, embaixo, o motivo da última recusa. No dev harness do renderer: `?mock=up-to-date&amd=1` mostra o prompt, `&prompted` pula, `&dxvk=on` começa ligado, `&dxvk=foreign` faz o enable recusar, `&view=settings` abre as Configurações.
 
 Trocar de versão do DXVK é uma release do launcher: atualize `DXVK_VERSION` e `DXVK_SHA256`, mova o hash antigo para `DXVK_PREVIOUS_SHA256` (o launcher continua reconhecendo o arquivo que uma versão anterior instalou) e rode `fetch-dxvk` de novo.
 

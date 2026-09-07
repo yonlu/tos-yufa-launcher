@@ -73,7 +73,9 @@ Escolha o domínio público (ex.: `patch.yufa.com.br`) e substitua `REPLACE_WITH
    onde falta um dos dois; sem esse push, uma instalação nova em Windows limpo termina com o aviso "runtimes não
    instalados" (o Jogar continua liberado).
 5. **Notícias**: edite `news/news.json` → `npm run yufa-publish -- news push`.
-6. **Launcher**: `npm run dist` → teste o `Yufa-Launcher-Setup-<versão>.exe` numa máquina limpa (instala em
+6. **Launcher**: `npm run fetch-dxvk` (uma vez por máquina: baixa o DXVK 2.5 oficial, confere o hash fixado em
+   `packages/shared/src/dxvk.ts` e deixa `d3d9.dll` + `LICENSE` em `packages/launcher/build/dxvk/`; sem isso o
+   `dist` para antes de empacotar) → `npm run dist` → teste o `Yufa-Launcher-Setup-<versão>.exe` numa máquina limpa (instala em
    `C:\Hyped Games\Yufa Launcher`, sem UAC; o painel de instalação sugere `C:\Hyped Games\ToS Classic`) →
    `npm run yufa-publish -- launcher packages/launcher/release-builds`. Publique o instalador no site.
 7. **Testes de aceitação numa instalação nova** (as duas coisas que só o cliente real responde):
@@ -84,6 +86,16 @@ Escolha o domínio público (ex.: `patch.yufa.com.br`) e substitua `REPLACE_WITH
    - **`release.revision.txt`**: o launcher grava a revisão do Manifest (o maior patch archive, hoje 1121001).
      Confirme login e carregamento de mapa com esse valor. Se o servidor validar o arquivo, é o número do
      patch archive mais alto que precisa mudar, não o launcher.
+
+   - **Correção AMD (DXVK)**, numa máquina com placa AMD (ADR 0003; é o item mais demorado do spec, arrume a
+     máquina na primeira semana): instale do zero pelo launcher, copie os três binários à mão como no passo 3,
+     aceite o prompt "Placa de vídeo AMD detectada" que aparece no primeiro `ready` (ou ligue a chave em
+     Configurações → Correção de compatibilidade AMD), confira que `release\d3d9.dll` apareceu, abra o jogo, entre,
+     carregue um mapa e confirme que renderiza sem artefatos e com fps razoável. Depois desligue a chave: o arquivo
+     some e a pasta `release\` volta a ser só o que o Install Record lista (mais `release.revision.txt`). Se o
+     antivírus da máquina levar o DLL, ligue o launcher de novo: o `reconcile` no `ready` recoloca o arquivo, e é
+     isso que o jogador vai ver. Numa máquina sem AMD dá para ensaiar a mecânica com `YUFA_GPU=amd` (README), mas
+     só a placa de verdade responde se o jogo renderiza.
 
    Opcional, mas recomendado antes de anunciar: um ipf de teste com um recurso visível alterado, numerado acima
    da revisão atual → `patch <arquivo>` → launcher atualiza → recurso aparece → `rollback <build anterior>` →
@@ -135,6 +147,13 @@ Escolha o domínio público (ex.: `patch.yufa.com.br`) e substitua `REPLACE_WITH
   mesmo upgrade as configurações voltam ao padrão e o launcher procura o jogo ao lado dele e em
   `C:\Hyped Games\ToS Classic`; se o jogo está em outra pasta, aparece o painel de instalação e o jogador
   aponta a pasta em Procurar (vira "Continuar instalação" e o `check` só confere, nada é baixado de novo).
+- **Antivírus e o DXVK**: `release\d3d9.dll` é um DLL de terceiros, sem assinatura, que aparece ao lado de um
+  executável de jogo quando o jogador liga a correção — exatamente o padrão que heurísticas de antivírus (Defender,
+  Avast, Kaspersky) marcam como "injeção de DLL" ou quarentenam. Sintomas: a correção some entre sessões (o
+  `reconcile` no `ready` recoloca o arquivo e o log mostra `dxvk installed` de novo a cada abertura), ou o
+  `enable` falha com `file-locked` enquanto o scanner segura o arquivo. Não é falha do launcher: documente no site
+  a exclusão da pasta do jogo no antivírus para quem usa a correção, junto com o aviso do SmartScreen. O hash do
+  DLL está em `packages/shared/src/dxvk.ts` para quem quiser conferir contra o release oficial do DXVK.
 - Self-update tenta download **diferencial** (blockmap) e cai para download completo se o host não
   suportar multipart ranges — comportamento verificado e aceitável (~100 MB por update de launcher).
 - **Uploads da máquina do operador para a Cloudflare corrompem sem WARP** (Wi-Fi MediaTek MT7927 + Comcast,

@@ -15,8 +15,9 @@ import type {
  * Browser/dev harness: installed only when the preload bridge is absent.
  * Drive states via the URL, e.g. ?mock=updating, ?mock=error&code=offline,
  * ?mock=not-installed[&partial][&nospace], ?mock=resume, ?mock=runtimes, &redist=failed|declined
- * (warning on a ready launcher), &amd=1 (an AMD adapter in the GPU list), &dxvk=foreign (a d3d9.dll the
- * launcher does not recognise blocks the Compatibility fix) — lets every UI state be exercised without
+ * (warning on a ready launcher), &amd=1 (an AMD adapter in the GPU list; the prompt shows on ready unless
+ * &prompted), &dxvk=on (the Compatibility fix switched on) or &dxvk=foreign (a d3d9.dll the launcher does not
+ * recognise blocks it), &view=settings (Settings open on start). Every UI state can be exercised without
  * Electron or a patch server.
  */
 export function installMockIfNeeded(): void {
@@ -38,8 +39,8 @@ export function installMockIfNeeded(): void {
     afterLaunch: 'quit',
     downloadConcurrency: 2,
     allowOfflinePlay: true,
-    amdCompatibilityEnabled: false,
-    amdCompatibilityPrompted: false,
+    amdCompatibilityEnabled: params.get('dxvk') === 'on',
+    amdCompatibilityPrompted: params.has('prompted'),
   }
 
   /** ?amd=1 puts a Radeon next to the integrated adapter, the hybrid-laptop case the prompt exists for. */

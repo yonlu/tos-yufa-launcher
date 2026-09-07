@@ -1,11 +1,23 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { DxvkResult } from '@yufa/shared'
+// the pin module alone: the package root would drag zod's schemas into the renderer bundle
+import { DXVK_VERSION } from '@yufa/shared/dxvk'
+import { amdAdapterName } from '../lib/compatibilityFix'
 import { useLauncher } from '../store'
+import { CompatibilityFixRefusal } from './CompatibilityFixRefusal'
 
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { settings, saveSettings, selectGamePath, repair, checkRuntimes } = useLauncher()
+  const { settings, gpu, saveSettings, selectGamePath, repair, checkRuntimes, setCompatibilityFix } = useLauncher()
   const { t } = useTranslation()
   const [invalidPath, setInvalidPath] = useState(false)
+  // the Compatibility fix switch: what the last enable or disable said, shown under its row
+  const [fixResult, setFixResult] = useState<DxvkResult | null>(null)
+  const [fixWorking, setFixWorking] = useState(false)
+  // the modal stays mounted while closed: a refusal belongs to the visit it happened in
+  useEffect(() => {
+    if (!open) setFixResult(null)
+  }, [open])
 
   if (!open || !settings) return null
 
@@ -20,10 +32,20 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
     if (result) setInvalidPath(!result.valid)
   }
 
+  async function toggleFix(on: boolean) {
+    setFixWorking(true)
+    try {
+      setFixResult(await setCompatibilityFix(on))
+    } finally {
+      setFixWorking(false)
+    }
+  }
+  const adapter = amdAdapterName(gpu)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="animate-fade-up w-[540px] rounded-tos-panel border border-tos-border bg-tos-cream p-6 opacity-0 shadow-xl [animation-duration:0.3s]"
+        className="animate-fade-up max-h-[calc(100vh-40px)] w-[540px] overflow-y-auto rounded-tos-panel border border-tos-border bg-tos-cream p-6 opacity-0 shadow-xl [animation-duration:0.3s]"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="font-display mb-5 text-lg font-bold text-tos-burgundy">{t('settings.title')}</h2>
@@ -101,6 +123,31 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
             />
             {t('settings.allowOffline')}
           </label>
+
+          <div className="rounded-tos-panel border border-tos-border bg-tos-tan/60 p-3">
+            <label className="flex cursor-pointer items-start gap-2 text-sm text-tos-brown">
+              <input
+                type="checkbox"
+                checked={settings.amdCompatibilityEnabled}
+                disabled={fixWorking}
+                onChange={(e) => void toggleFix(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-tos-orange"
+              />
+              <span>
+                <span className="block">{t('settings.amdFix')}</span>
+                <span className="mt-0.5 block text-xs text-tos-brown-muted">{t('settings.amdFixHint')}</span>
+              </span>
+            </label>
+            <p className="mt-2 text-xs text-tos-brown-light">
+              {adapter ? t('dxvk.adapter', { name: adapter }) : t('settings.amdFixNoAdapter')}
+            </p>
+            <p className="mt-1 text-[10px] text-tos-brown-muted">{t('settings.amdFixAttribution', { version: DXVK_VERSION })}</p>
+            {fixResult?.error && (
+              <div className="mt-2 border-t border-tos-border pt-2">
+                <CompatibilityFixRefusal result={fixResult} />
+              </div>
+            )}
+          </div>
 
           <div className="rounded-tos-panel border border-tos-border bg-tos-tan/60 p-3">
             <button

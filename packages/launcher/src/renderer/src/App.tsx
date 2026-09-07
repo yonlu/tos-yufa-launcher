@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import headBg from './assets/head_bg.png'
 import headLeaves from './assets/head_leaves.png'
+import { CompatibilityFixPrompt } from './components/CompatibilityFixPrompt'
 import { CompatibilityFixWarning } from './components/CompatibilityFixWarning'
 import { ErrorBanner } from './components/ErrorBanner'
 import { InstallPanel } from './components/InstallPanel'
@@ -18,9 +19,12 @@ import { useLauncher } from './store'
 
 installMockIfNeeded()
 
+/** `?view=settings` opens Settings on start: the screenshot smoke (YUFA_VIEW in main) and the dev harness use it. */
+const startInSettings = new URLSearchParams(location.search).get('view') === 'settings'
+
 export default function App() {
   const init = useLauncher((s) => s.init)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(startInSettings)
   const { t } = useTranslation()
 
   useEffect(() => {
@@ -70,6 +74,7 @@ export default function App() {
 
       <UpdateToast />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <CompatibilityFixPrompt />
     </div>
   )
 }

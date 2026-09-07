@@ -29,10 +29,15 @@ export function createMainWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
+  // test/e2e hook: YUFA_VIEW=settings opens Settings on start (the renderer reads ?view=), for the screenshot smoke
+  const view = process.env['YUFA_VIEW']
+  const query = view ? { view } : undefined
   if (process.env['ELECTRON_RENDERER_URL']) {
-    void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    const url = new URL(process.env['ELECTRON_RENDERER_URL'])
+    if (view) url.searchParams.set('view', view)
+    void win.loadURL(url.toString())
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'))
+    void win.loadFile(join(__dirname, '../renderer/index.html'), { query })
   }
   return win
 }

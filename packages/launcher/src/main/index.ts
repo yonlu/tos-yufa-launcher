@@ -44,7 +44,8 @@ async function bootstrap(): Promise<void> {
   log.info(`launcher ${app.getVersion()} starting (manifest: ${MANIFEST_URL})`)
 
   // Kicked off now so the answer is usually in hand when the renderer asks for app info.
-  const gpuDetection = probeGpu()
+  // test/e2e hook: YUFA_GPU=amd lists an AMD adapter so the prompt and the switch can be photographed on any machine
+  const gpuDetection = process.env['YUFA_GPU'] === 'amd' ? Promise.resolve(pretendAmdGpu()) : probeGpu()
 
   // Without a known game folder the install panel targets the publisher default.
   const settings = new SettingsStore(app.getPath('userData'))
@@ -74,6 +75,14 @@ async function bootstrap(): Promise<void> {
   })
 
   let patcher = buildPatcher()
+  // test/e2e hook: YUFA_DXVK=enable|disable flips the Compatibility fix before the window opens, the way the
+  // switch would, so the smoke can assert release/ and photograph the switch in its new position
+  const dxvkHook = process.env['YUFA_DXVK']
+  if (dxvkHook === 'enable' || dxvkHook === 'disable') {
+    const result = dxvkHook === 'enable' ? await dxvk.enable() : await dxvk.disable()
+    log.info(`dxvk ${dxvkHook} (YUFA_DXVK):${describeDxvk(result)}`)
+  }
+
   function buildPatcher(): Patcher {
     const gameDir = settings.get().gamePath
     return new Patcher({
@@ -319,6 +328,14 @@ async function detectGamePath(): Promise<string> {
     if (await isValidGameDir(c)) return c
   }
   return ''
+}
+
+/** What YUFA_GPU=amd reports: one AMD adapter, named so a screenshot says where it came from. */
+function pretendAmdGpu(): GpuDetection {
+  return {
+    amdDetected: true,
+    adapters: [{ vendorId: '0x1002', deviceId: null, active: true, amd: true, name: 'AMD Radeon (YUFA_GPU=amd)' }],
+  }
 }
 
 /** How long the GPU probe may hold up app info before the launcher assumes no AMD adapter. */
