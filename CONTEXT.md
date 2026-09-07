@@ -26,6 +26,7 @@ Glossary for the launcher and its publishing pipeline. Terms only; no implementa
 - **Installing** — first-time download of a whole build into a chosen folder. Resumable across launcher restarts.
 - **Checking / Update available / Up to date / Updating / Verifying / Ready** — as before: compare local install to the current manifest, fetch what differs.
 - **Repair** — deep verification: every Managed File re-hashed, differences healed.
+- **Compatibility fix** — a file the launcher places next to the client only when the player switches it on, outside the Manifest and the Install Record, identified by a content hash pinned in launcher source. Today: DXVK's `d3d9.dll` for AMD GPUs. The switch is the only state: the launcher re-applies it at Ready and before Play, refuses to enable over a file it does not recognise, removes only a file whose hash it knows, and never touches it while the game runs. No Build may ship a file of that name (ADR 0003).
 - **Redistributable** — a Windows runtime the client needs (VC++ 2015+ x86, DirectX June 2010). Installed only when detected missing, right after the install that completes the Install Record and on demand from Settings; not part of the game manifest. Its trimmed installers live under `redist/`, described by a **Redist index** the CLI writes last. A failed or declined runtime install is a warning, never a block on Play.
 
 ## Names
