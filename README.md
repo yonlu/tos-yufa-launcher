@@ -56,7 +56,7 @@ Aponte o launcher (dev ou empacotado) para o sandbox com variáveis de ambiente:
 | `YUFA_REDIST_INDEX_URL`, `YUFA_LAUNCHER_FEED_URL` | índices alternativos de runtimes e de self-update |
 | `YUFA_GPU=amd` | finge uma placa AMD na lista de GPUs: o prompt da correção e a linha da placa nas Configurações aparecem em qualquer máquina |
 | `YUFA_DXVK=enable` / `disable` | liga ou desliga o Compatibility fix antes de abrir a janela, como a chave das Configurações faria |
-| `YUFA_VIEW=settings` / `settings:launcher` | abre as Configurações ao iniciar, na seção Jogo ou na Launcher (o smoke fotografa as duas) |
+| `YUFA_VIEW=settings` / `settings:launcher` / `news` | abre as Configurações ao iniciar, na seção Jogo ou na Launcher, ou a tela de Notícias (o smoke fotografa as três) |
 
 Ciclo completo à mão:
 
@@ -70,10 +70,10 @@ Ou tudo de uma vez, com o launcher empacotado, cada etapa fotografada em `e2e-sa
 
 ```
 npm run dist
-npm run e2e        # painel de instalação → instala Build 1 (prompt AMD) → liga a correção → atualiza para Build 2 → rollback 1 → desliga a correção → seção Launcher → d3d9.dll estranho bloqueia a correção
+npm run e2e        # painel de instalação → instala Build 1 (prompt AMD) → liga a correção → atualiza para Build 2 → rollback 1 → desliga a correção → seção Launcher → d3d9.dll estranho bloqueia a correção → tela de Notícias
 ```
 
-Os dois últimos passos são o Compatibility fix: ligado, `release\d3d9.dll` tem o hash fixado e sobrevive à atualização e ao rollback sem entrar no Install Record; desligado, `release\` volta a ser byte a byte o que o Install Record lista (mais o `release.revision.txt`, que é do launcher). As fotos com `YUFA_GPU=amd` mostram o prompt e a chave nas Configurações, em português e em inglês; as duas últimas etapas fotografam a seção Launcher e a recusa por um `d3d9.dll` que não é do launcher (que fica intacto), cada uma nos dois idiomas.
+Os passos 3 a 7 são o Compatibility fix: ligado, `release\d3d9.dll` tem o hash fixado e sobrevive à atualização e ao rollback sem entrar no Install Record; desligado, `release\` volta a ser byte a byte o que o Install Record lista (mais o `release.revision.txt`, que é do launcher). As fotos com `YUFA_GPU=amd` mostram o prompt e a chave nas Configurações, em português e em inglês; as etapas seguintes fotografam a seção Launcher e a recusa por um `d3d9.dll` que não é do launcher (que fica intacto), cada uma nos dois idiomas, e a última fotografa a tela de Notícias nos dois idiomas.
 
 ## Launcher (instalação e self-update)
 
@@ -81,9 +81,21 @@ Produto **Yufa Launcher**, publicado por **Hyped Games**: instalador NSIS one-cl
 
 O launcher procura versão nova ao abrir e baixa sozinho; a instalação acontece ao fechar. Em Configurações, seção Launcher, a linha da versão mostra a versão atual, a linha de status (procurando, atualizado, baixando N%, pronta para reiniciar, erro) e o botão **Verificar agora** (IPC `updater:check`), que repete a busca à mão. Um clique durante uma busca ou um download não faz nada, e com a atualização já baixada o botão dá lugar a **Reiniciar agora**. No mock (`?updater=…`), Verificar agora passa por procurando e termina em atualizado.
 
+## Shell (janela principal)
+
+A janela é 1200 por 700 (menor quando a área de trabalho não comporta; issue #20) e o `App.tsx` do renderer monta, de cima para baixo:
+
+- `TitleBar`: a faixa translúcida sobre o topo da arte, com a região de arrastar, o nome do produto, a versão, Configurações, minimizar e fechar.
+- `Hero` (`src/renderer/src/components/Hero.tsx`): 460 px contando os 40 da barra de título, a arte com um véu escuro que se dissolve no bege e um segundo véu lateral atrás do texto. Na metade de baixo, à esquerda: o eyebrow, o título e o subtítulo, depois o encaixe do `InstallPanel`, do `RuntimeWarning`, do `CompatibilityFixWarning` e do `ErrorBanner`, depois uma linha com o `PlayButton` e o `StatusArea`. O título dá lugar ao que ocupa o encaixe (`heroHeadline` em `src/renderer/src/lib/shell.ts`): some inteiro com o painel de instalação (com os problemas da pasta listados, só o eyebrow já entraria 16 px na pílula) e perde o subtítulo com um aviso ou erro, para o Jogar nunca sair da janela mesmo com dois avisos de uma vez. Cada aviso tem seu predicado no mesmo módulo, usado pelo componente e pelo hero. O selo de notícias salvas (feed do cache) aparece acima da linha de cards e no cabeçalho da tela de Notícias.
+- `TopNav`: a pílula flutuante 36 px abaixo da barra de título, com o logo por cima dela. Início e Notícias trocam a tela; Site, Discord, Database e Planner abrem no navegador (`appOpenExternal`), com os endereços em `packages/shared/src/links.ts` (subpath `@yufa/shared/links`, pelo mesmo motivo do `@yufa/shared/dxvk`). A pílula tem largura fixa e três colunas para o espaço do meio, e o logo sobre ele, ficarem no centro em qualquer idioma: sem isso o Chrome dimensiona as colunas pelo conteúdo e o logo cai em cima do Site.
+- Abaixo do hero, na tela Início, uma linha com três cards de notícia (`NewsGrid`: fixados primeiro, depois os mais novos, `orderNews` em `src/renderer/src/lib/news.ts`; data e marca de fixado acima do título, corpo de três linhas, "Ler mais" nos que têm link) e o `CommunityCard` de 270 px (quem está online e quantos membros, via `community:get`, e Entrar no Discord; sem contagem, os números somem e fica uma linha de descrição). A contagem é pedida uma vez ao abrir e de novo a cada volta ao Início, nunca por timer.
+- Na tela Notícias o hero encolhe para 216 px (só a arte e a pílula) e a lista completa ocupa o resto em três colunas, com corpos maiores e um link Voltar.
+
+Os ajudantes puros (`orderNews`, `homeNews`, `shellViewFromQuery`, `installPanelUp`, `heroHeadline`) têm testes em `packages/launcher/test`. No dev harness do renderer, além dos parâmetros das seções abaixo: `?view=news` abre a tela de Notícias, `&news=empty` mostra um feed vazio e `&discord=off` derruba a contagem do Discord.
+
 ## Presença no Discord
 
-A contagem de quem está online e de membros do Discord vem do metadado público do convite permanente do site (`DISCORD_INVITE_CODE`, em `src/main/constants.ts`, ao lado dos outros endpoints): o processo principal faz `GET https://discord.com/api/v10/invites/<code>?with_counts=true` com 5 s de timeout e responde `{ online, members }` pelo IPC `community:get`, ou `null` em qualquer falha (offline, resposta que não é 200, corpo fora do formato). Sem bot, sem token, sem timer: uma busca por chamada, e a CSP do renderer não muda porque a busca fica no main. O ajudante `fetchDiscordCounts` (`src/main/community.ts`) recebe o `fetch` injetado e tem testes para cada um desses casos. No mock, `communityGet` responde contagens fixas e `?discord=off` responde `null`.
+A contagem de quem está online e de membros do Discord vem do metadado público do convite permanente do site (`DISCORD_INVITE_CODE`, em `packages/shared/src/links.ts`, reexportado por `src/main/constants.ts` ao lado dos outros endpoints): o processo principal faz `GET https://discord.com/api/v10/invites/<code>?with_counts=true` com 5 s de timeout e responde `{ online, members }` pelo IPC `community:get`, ou `null` em qualquer falha (offline, resposta que não é 200, corpo fora do formato). Sem bot, sem token, sem timer: uma busca por chamada, e a CSP do renderer não muda porque a busca fica no main. O ajudante `fetchDiscordCounts` (`src/main/community.ts`) recebe o `fetch` injetado e tem testes para cada um desses casos. No mock, `communityGet` responde contagens fixas e `?discord=off` responde `null`.
 
 ## Configurações
 

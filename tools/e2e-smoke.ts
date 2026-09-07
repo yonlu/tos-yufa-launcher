@@ -16,7 +16,8 @@ import { buildSandbox, bumpSandbox, sandboxCtx, sandboxPaths } from './e2e-setup
  * run captured by the screenshot smoke hook and judged by what lands in the
  * game folder. The runs with an AMD adapter pretended (YUFA_GPU=amd)
  * photograph the one-time prompt and the Settings switch, and the Settings
- * runs cover both sections, in both languages between them.
+ * runs cover both sections, in both languages between them. The last run
+ * photographs the News view.
  * Each `--*-delay` is the wait before that screenshot, in ms.
  *
  *   npm run dist                       # once: the packaged launcher under release-builds/win-unpacked
@@ -250,6 +251,15 @@ try {
     await fs.rm(foreign)
     await seedSettings({ amdCompatibilityEnabled: false })
     await expectReleaseMatchesRecord(paths.gameDir)
+    return `${shotPt}, ${shotEn}`
+  })
+
+  await step('the News view, both languages (screenshot only)', async () => {
+    await seedSettings({ language: 'pt-BR' })
+    const shotPt = await runLauncher('12-news-view-pt', { YUFA_VIEW: 'news' }, panelShotMs)
+    await seedSettings({ language: 'en' })
+    const shotEn = await runLauncher('13-news-view-en', { YUFA_VIEW: 'news' }, panelShotMs)
+    await expectCompatibilityFix(paths.gameDir, 'absent')
     return `${shotPt}, ${shotEn}`
   })
 } finally {

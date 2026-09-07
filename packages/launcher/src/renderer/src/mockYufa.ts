@@ -22,7 +22,8 @@ import type {
  * for a restart), &view=settings or &view=settings:launcher (Settings open on start, at that section),
  * &updater=checking|none|available|downloading|ready|error
  * (the launcher update status a second after start; Check now in Settings always runs checking then none),
- * &discord=off (the Discord counts fail, so the community card shows no numbers).
+ * &discord=off (the Discord counts fail, so the community card shows no numbers), &news=empty (a feed with
+ * nothing in it), &view=news (the News view open on start).
  * Every UI state can be exercised without Electron or a patch server.
  */
 export function installMockIfNeeded(): void {
@@ -259,7 +260,7 @@ export function installMockIfNeeded(): void {
     },
     newsGet: async () => ({
       stale: params.has('stalenews'),
-      items: [
+      items: params.get('news') === 'empty' ? [] : [
         {
           id: '1',
           date: '2026-07-01',

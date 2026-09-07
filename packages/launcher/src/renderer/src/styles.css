@@ -29,6 +29,8 @@
   --color-tos-button-primary-border: #b35207;
   --color-tos-button-danger-border: #902e3f;
   --color-tos-button-danger-mid: #c73939;
+  /* Discord's brand blue, for the community card alone */
+  --color-discord: #5865f2;
 
   --radius-tos-panel: 10px;
   --radius-tos-cta: 15px;

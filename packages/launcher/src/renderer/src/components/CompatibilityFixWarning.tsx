@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { dxvkReason } from '../lib/compatibilityFix'
+import { compatibilityFixWarningShown } from '../lib/shell'
 import { useLauncher } from '../store'
 import { WarningPanel } from './WarningPanel'
 
@@ -11,10 +12,10 @@ import { WarningPanel } from './WarningPanel'
  * under the switch itself, not here.)
  */
 export function CompatibilityFixWarning() {
-  const dxvk = useLauncher((s) => s.patcher.dxvk)
+  const patcher = useLauncher((s) => s.patcher)
   const { t } = useTranslation()
 
-  const reason = dxvkReason(dxvk)
-  if (!reason) return null
-  return <WarningPanel title={t('dxvk.warning')} reason={t(`dxvk.reason.${reason}`)} detail={dxvk?.error?.message} />
+  if (!compatibilityFixWarningShown(patcher)) return null
+  const reason = dxvkReason(patcher.dxvk)!
+  return <WarningPanel title={t('dxvk.warning')} reason={t(`dxvk.reason.${reason}`)} detail={patcher.dxvk?.error?.message} />
 }

@@ -32,7 +32,7 @@ export function createMainWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
-  // test/e2e hook: YUFA_VIEW=settings opens Settings on start (the renderer reads ?view=), for the screenshot smoke
+  // test/e2e hook: YUFA_VIEW=settings|settings:launcher|news opens that view on start (the renderer reads ?view=), for the screenshot smoke
   const view = process.env['YUFA_VIEW']
   const query = view ? { view } : undefined
   if (process.env['ELECTRON_RENDERER_URL']) {

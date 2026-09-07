@@ -1,77 +1,90 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import headBg from './assets/head_bg.webp'
-import headLeaves from './assets/head_leaves.webp'
+import { CommunityCard } from './components/CommunityCard'
 import { CompatibilityFixPrompt } from './components/CompatibilityFixPrompt'
-import { CompatibilityFixWarning } from './components/CompatibilityFixWarning'
-import { ErrorBanner } from './components/ErrorBanner'
-import { InstallPanel } from './components/InstallPanel'
-import { NewsPanel } from './components/NewsPanel'
-import { PlayButton } from './components/PlayButton'
-import { RuntimeWarning } from './components/RuntimeWarning'
+import { Hero } from './components/Hero'
+import { HomeNews, NewsList, NewsStaleBadge } from './components/NewsGrid'
 import { SettingsDialog } from './components/SettingsDialog'
-import { StatusArea } from './components/StatusArea'
 import { TitleBar } from './components/TitleBar'
+import { TopNav } from './components/TopNav'
 import { UpdateToast } from './components/UpdateToast'
 import './i18n'
 import { settingsSectionFromView } from './lib/settingsDialog'
+import { shellViewFromQuery, type ShellView } from './lib/shell'
 import { installMockIfNeeded } from './mockYufa'
 import { useLauncher } from './store'
 
 installMockIfNeeded()
 
-/** `?view=settings` or `settings:launcher` opens Settings on start: the screenshot smoke (YUFA_VIEW in main) and the dev harness use it. */
-const startSection = settingsSectionFromView(new URLSearchParams(location.search).get('view'))
+/**
+ * `?view=` on start: `settings` or `settings:launcher` opens Settings at that section, `news` opens the News
+ * view. The screenshot smoke (YUFA_VIEW in main) and the dev harness use it.
+ */
+const startQuery = new URLSearchParams(location.search).get('view')
+const startSection = settingsSectionFromView(startQuery)
+const startView = shellViewFromQuery(startQuery)
 
+/**
+ * The shell: title bar, the hero with the nav floating over it, and under
+ * it either the home row (three news cards and the community card) or the
+ * full news list. Settings, the launcher-update toast and the one-time AMD
+ * prompt float over everything.
+ */
 export default function App() {
   const init = useLauncher((s) => s.init)
+  const refreshCommunity = useLauncher((s) => s.refreshCommunity)
+  const stale = useLauncher((s) => s.news?.stale ?? false)
   const [settingsOpen, setSettingsOpen] = useState(startSection !== null)
+  const [view, setView] = useState<ShellView>(startView)
   const { t } = useTranslation()
 
   useEffect(() => {
     void init()
   }, [init])
 
+  // the Discord counts: init fetched them once at start; again each time the player comes back Home, never on a timer
+  const firstView = useRef(true)
+  useEffect(() => {
+    if (firstView.current) firstView.current = false
+    else if (view === 'home') void refreshCommunity()
+  }, [view, refreshCommunity])
+
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-tos-beige text-tos-brown">
-      {/* backdrop: hero photo fading into parchment, ambient leaves on top */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 bottom-24">
-        <img src={headBg} alt="" className="h-full w-full object-cover object-[center_20%]" />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/10 to-tos-beige" />
-        <div
-          className="animate-leaf-float absolute inset-0 bg-top bg-no-repeat opacity-40"
-          style={{ backgroundImage: `url(${headLeaves})` }}
-        />
-      </div>
+      <TitleBar onOpenSettings={() => setSettingsOpen(true)} />
 
-      <div className="relative z-10 flex h-full flex-col">
-        <TitleBar onOpenSettings={() => setSettingsOpen(true)} />
+      <Hero collapsed={view === 'news'}>
+        <TopNav view={view} onNavigate={setView} />
+      </Hero>
 
-        <main className="flex min-h-0 flex-1">
-          <section className="flex min-w-0 flex-1 flex-col justify-end">
-            <div className="animate-fade-up px-8 pb-6 pt-10 opacity-0" style={{ animationDelay: '0.1s' }}>
-              <h1 className="font-display text-5xl font-bold tracking-tight text-tos-brown drop-shadow-sm">
-                {t('hero.title')} <span className="text-tos-orange">{t('hero.highlight')}</span>
-              </h1>
-            </div>
-            <InstallPanel />
-            <RuntimeWarning />
-            <CompatibilityFixWarning />
-            <ErrorBanner />
-          </section>
-          <div className="animate-fade-up flex opacity-0" style={{ animationDelay: '0.3s' }}>
-            <NewsPanel />
+      {view === 'home' ? (
+        <div className="flex min-h-0 flex-1 flex-col px-12 pb-6 pt-2">
+          {stale && (
+            <p className="mb-1.5 flex justify-end">
+              <NewsStaleBadge />
+            </p>
+          )}
+          <div className="grid min-h-0 flex-1 grid-cols-[1fr_1fr_1fr_270px] gap-4">
+            <HomeNews />
+            <CommunityCard />
           </div>
-        </main>
-
-        <footer
-          className="animate-fade-up flex h-24 shrink-0 items-center border-t border-tos-border bg-tos-cream px-8 opacity-0"
-          style={{ animationDelay: '0.2s' }}
-        >
-          <StatusArea />
-          <PlayButton />
-        </footer>
-      </div>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto px-12 pb-6 pt-4">
+          <div className="mb-3 flex items-baseline gap-3">
+            <h2 className="font-display text-xl font-bold text-tos-burgundy">{t('news.title')}</h2>
+            <NewsStaleBadge />
+            <button
+              type="button"
+              onClick={() => setView('home')}
+              className="ml-auto text-xs text-tos-brown-light underline-offset-2 hover:text-tos-burgundy hover:underline"
+            >
+              ← {t('news.back')}
+            </button>
+          </div>
+          <NewsList />
+        </div>
+      )}
 
       <UpdateToast />
       <SettingsDialog open={settingsOpen} initialSection={startSection ?? 'game'} onClose={() => setSettingsOpen(false)} />

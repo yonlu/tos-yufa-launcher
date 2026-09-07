@@ -10,7 +10,7 @@ export function UpdateToast() {
   if (updater.status !== 'downloading' && updater.status !== 'ready') return null
 
   return (
-    <div className="animate-fade-up pointer-events-auto fixed bottom-28 right-4 z-40 flex items-center gap-3 rounded-tos-panel border border-tos-border bg-tos-cream px-4 py-2.5 opacity-0 shadow-tos-panel [animation-duration:0.4s]">
+    <div className="animate-fade-up pointer-events-auto fixed right-4 top-32 z-40 flex items-center gap-3 rounded-tos-panel border border-tos-border bg-tos-cream px-4 py-2.5 opacity-0 shadow-lg [animation-duration:0.4s]">
       <p className="text-xs text-tos-brown-light">
         {updater.status === 'ready'
           ? t('updater.ready')

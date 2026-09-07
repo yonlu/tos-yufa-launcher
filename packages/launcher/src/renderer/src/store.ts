@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type {
+  CommunityCounts,
   DxvkResult,
   GpuDetection,
   InstallPathCheck,
@@ -22,6 +23,8 @@ interface LauncherStore {
   /** A saved setting (hardware acceleration) only takes effect after the launcher restarts. */
   restartRequired: boolean
   news: NewsResult | null
+  /** Discord counts for the community card; null until fetched, and when the fetch failed (the card omits the numbers). */
+  community: CommunityCounts | null
   version: string
   /** What main found in the GPU list; null until app info arrives. */
   gpu: GpuDetection | null
@@ -39,6 +42,8 @@ interface LauncherStore {
   cancel(): Promise<void>
   /** Settings' Check now. The answer arrives as an `updater` status. */
   checkForLauncherUpdate(): Promise<void>
+  /** Asks main for the Discord counts: init calls it once per start, App whenever the player returns Home; never on a timer. */
+  refreshCommunity(): Promise<void>
   play(): Promise<void>
   saveSettings(p: Partial<Settings>): Promise<void>
   /**
@@ -63,6 +68,7 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   settings: null,
   restartRequired: false,
   news: null,
+  community: null,
   version: '',
   gpu: null,
   launching: false,
@@ -100,6 +106,7 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
 
     await get().check()
     void yufa.newsGet().then((news) => set({ news }))
+    void get().refreshCommunity()
   },
 
   async check() {
@@ -118,6 +125,10 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   checkRuntimes: () => window.yufa.patcherCheckRuntimes(),
   cancel: () => window.yufa.patcherCancel(),
   checkForLauncherUpdate: () => window.yufa.updaterCheck(),
+
+  async refreshCommunity() {
+    set({ community: await window.yufa.communityGet() })
+  },
 
   async play() {
     set({ launching: true })

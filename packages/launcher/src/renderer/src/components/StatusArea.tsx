@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { formatBytes, formatEta } from '../lib/format'
 import { useLauncher } from '../store'
 
-/** Bottom-left: one-line status, live progress bar, cancel link. */
+/** Beside Play in the hero: one-line status, live progress bar, cancel link, all over the dark veil. */
 export function StatusArea() {
   const { patcher, progress, cancel } = useLauncher()
   const { t } = useTranslation()
@@ -64,11 +64,11 @@ export function StatusArea() {
   const showSpeed = showBar && progress!.phase === 'downloading' && progress!.bytesPerSec > 0
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 pr-8">
+    <div className="flex min-w-0 max-w-xl flex-1 flex-col justify-center gap-1.5">
       <div className="flex items-baseline gap-3">
-        {statusLine && <p className="truncate text-sm text-tos-brown">{statusLine}</p>}
+        {statusLine && <p className="truncate text-sm text-white drop-shadow">{statusLine}</p>}
         {showSpeed && (
-          <p className="shrink-0 text-xs text-tos-brown-muted">
+          <p className="shrink-0 text-xs text-white/60 drop-shadow">
             {t('status.speed', {
               speed: formatBytes(progress!.bytesPerSec),
               eta: progress!.etaSec !== null ? formatEta(progress!.etaSec) : '…',
@@ -79,14 +79,14 @@ export function StatusArea() {
           <button
             type="button"
             onClick={() => void cancel()}
-            className="shrink-0 text-xs text-tos-brown-light underline-offset-2 hover:text-tos-burgundy hover:underline"
+            className="shrink-0 text-xs text-white/70 underline-offset-2 hover:text-white hover:underline"
           >
             {t('play.cancel')}
           </button>
         )}
       </div>
       {showBar && (
-        <div className="h-2 w-full overflow-hidden rounded-full bg-tos-brown/10">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-white/20 shadow-inner">
           <div
             className="h-full rounded-full bg-gradient-to-r from-tos-orange-light to-tos-orange transition-[width] duration-300"
             style={{ width: `${percent}%` }}

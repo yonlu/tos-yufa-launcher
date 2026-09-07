@@ -120,7 +120,7 @@ export function PlayButton() {
     play: tosPrimary,
     update: tosPrimary,
     neutral:
-      'border-2 border-tos-border-dark bg-tos-tan text-tos-brown-light enabled:hover:bg-tos-border enabled:hover:text-tos-brown',
+      'border-2 border-white/35 bg-white/15 text-white backdrop-blur-sm enabled:hover:bg-white/25 enabled:hover:border-white/50',
   }[spec.variant]
 
   return (
@@ -128,8 +128,8 @@ export function PlayButton() {
       type="button"
       onClick={spec.onClick}
       disabled={spec.disabled}
-      className={`font-display relative h-14 w-60 overflow-hidden rounded-tos-cta text-base font-bold uppercase tracking-wider transition-all disabled:cursor-default ${palette} ${
-        spec.disabled && spec.fillPercent === undefined ? 'opacity-70' : ''
+      className={`font-display relative h-14 w-60 shrink-0 overflow-hidden rounded-tos-cta text-base font-bold uppercase tracking-wider transition-all disabled:cursor-default ${palette} ${
+        spec.disabled && spec.fillPercent === undefined ? 'opacity-80' : ''
       }`}
     >
       {spec.fillPercent !== undefined && (
