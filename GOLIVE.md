@@ -46,9 +46,12 @@ Escolha o domínio público (ex.: `patch.yufa.com.br`) e substitua `REPLACE_WITH
    npm run yufa-publish -- verify --mirror <pasta do jogo>
    ```
    O `--dry-run` lista o que subiria. O **hard guard** (não configurável) deixa de fora `release\user.xml`,
-   `user_c.xml`, `hud_config.xml`, `serverlist_recent.xml`, `chat_config_*.xml`, `release.revision.txt`, `*.part`,
-   `addons\` e as pastas de runtime (`screenshot`, `log_Client`, `user`, `GuildEmblem`…) — é isso que impede o
-   login e as configs do operador de vazarem, mesmo publicando de uma pasta jogada. `excludes` no
+   `user_c.xml`, `hud_config.xml`, `serverlist_recent.xml`, `CheatLogData`, `chat_config_*.xml`, `release.revision.txt`,
+   `*.part`, `addons\` e as pastas de runtime (`screenshot`, `log_Client`, `user`, `GuildEmblem`…) — é isso que
+   impede o login e as configs do operador de vazarem, mesmo publicando de uma pasta jogada. Também deixa de fora
+   `release\d3d9.dll`: é o Compatibility fix (DXVK) que o launcher coloca ao lado do cliente quando o jogador o
+   liga, e nenhum Build pode mandar um arquivo com esse nome (ADR 0003) — se a pasta de onde você publica está com
+   o DXVK ligado, o arquivo não sobe. `excludes` no
    `publish.config.json` tira o resto (`release\patch\`, `_CommonRedist\` por padrão); `includes` devolve um caminho
    exato apesar dos `excludes` — hoje só `release\patch\updater.config.xml`, que o `Client_tos.exe` abre no
    `InitConfig` (lê `Config/URL[@Key="Revisions"]`) e sem o qual aborta com "Can't load config files"; nada mais

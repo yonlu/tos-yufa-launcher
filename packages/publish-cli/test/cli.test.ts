@@ -44,6 +44,7 @@ async function makeGameTree() {
   await put(game, 'release/hud_config.xml')
   await put(game, 'release/serverlist_recent.xml')
   await put(game, 'release/CheatLogData', 'binary session log')
+  await put(game, 'release/d3d9.dll', 'dxvk placed by the launcher') // Compatibility fix, ADR 0003
   await put(game, 'release/chat_config_1.xml')
   await put(game, 'release/release.revision.txt', '1116001')
   await put(game, 'release/screenshot/shot.png')
@@ -157,6 +158,18 @@ describe('release', () => {
     // with excludes emptied, the default-excluded paths do get published
     expect(paths).toContain('release/patch/junk.ipf')
     expect(paths).toContain('_CommonRedist/vc_redist.x86.exe')
+  })
+
+  it('never ships the Compatibility fix: a Mirror holding release/d3d9.dll publishes without it (ADR 0003)', async () => {
+    const t = await makeGameTree()
+
+    await release(ctx, { dir: t.game })
+
+    const paths = (await readCurrent()).files.map((f) => f.path)
+    expect(paths).not.toContain('release/d3d9.dll')
+    expect(paths).toContain('release/Yuka.exe')
+    // and the file in the Mirror is not a discrepancy either
+    expect(await verify(ctx, { mirror: t.game })).toEqual({ ok: true, problems: [] })
   })
 
   it('honours configured excludes and seed-once paths', async () => {

@@ -26,10 +26,16 @@ const RUNTIME_DIRS: readonly string[] = [
 ]
 
 /**
- * Player-owned files written by the client at exit. Contain the login id and
- * per-character state. CheatLogData is the anti-cheat's binary session log:
- * rewritten every play session, so it would leak the operator's play and be
- * "repaired" by the launcher on every check.
+ * Exact paths the hard guard drops. The first five are Player-owned Files
+ * written by the client at exit: they contain the login id and per-character
+ * state. CheatLogData is the anti-cheat's binary session log: rewritten every
+ * play session, so it would leak the operator's play and be "repaired" by the
+ * launcher on every check.
+ *
+ * d3d9.dll is not Player-owned: it is the Compatibility fix (DXVK) the
+ * launcher places next to the client when the player switches it on. It lives
+ * outside the Manifest, so a Build must never ship one or the fix and the
+ * game would fight over the path (ADR 0003).
  */
 const GUARDED_FILES: readonly string[] = [
   'release/user.xml',
@@ -37,6 +43,7 @@ const GUARDED_FILES: readonly string[] = [
   'release/hud_config.xml',
   'release/serverlist_recent.xml',
   'release/CheatLogData',
+  'release/d3d9.dll',
 ]
 
 /** `.yufa-*` are the launcher's own files in the game folder (Install Record, write probe). */
@@ -76,9 +83,9 @@ const guardedFiles = new Set(GUARDED_FILES.map((f) => f.toLowerCase()))
 const guardedDirs = new Set(GUARDED_DIRS.map((d) => d.toLowerCase()))
 
 /**
- * The hard guard: true for Player-owned Files that must never be published,
- * whatever the config says (see CONTEXT.md — they carry the operator's login
- * and per-character state).
+ * The hard guard: true for paths that must never be published, whatever the
+ * config says. Player-owned Files (see CONTEXT.md — they carry the operator's
+ * login and per-character state) and the Compatibility fix (ADR 0003).
  */
 export function isHardGuarded(relPath: string): boolean {
   const lower = relPath.toLowerCase()
