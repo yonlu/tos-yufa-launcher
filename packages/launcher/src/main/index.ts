@@ -1,6 +1,7 @@
 import { dirname, join, resolve } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron'
 import log from 'electron-log/main'
+import electronUpdater from 'electron-updater'
 import {
   IPC,
   type AppInfo,
@@ -25,7 +26,7 @@ import { cleanupStaleParts, gamePaths, isValidGameDir, probeGameDirWritable } fr
 import { fetchNews } from './news'
 import { Patcher } from './patcher'
 import { ensureRedistributables, probeWindowsRuntimes, runInstallersElevated } from './redist'
-import { initSelfUpdate, type SelfUpdater } from './selfUpdate'
+import { createSelfUpdater, type SelfUpdater, type UpdaterEngine } from './selfUpdate'
 import { createMainWindow } from './window'
 
 // Before ready, synchronously (see bootSettings): the YUFA_USERDATA test hook, the settings store,
@@ -123,10 +124,14 @@ async function bootstrap(): Promise<void> {
     })
   }
 
-  const updater: SelfUpdater = initSelfUpdate(LAUNCHER_FEED_URL, (e) => {
-    log.info(`self-update: ${e.status}${e.version ? ` ${e.version}` : ''}`)
-    send(IPC.updaterStatus, e)
-  })
+  const updater: SelfUpdater = createSelfUpdater(
+    autoUpdaterEngine(LAUNCHER_FEED_URL),
+    (e) => {
+      log.info(`self-update: ${e.status}${e.version ? ` ${e.version}` : ''}${e.percent !== undefined ? ` ${e.percent}%` : ''}`)
+      send(IPC.updaterStatus, e)
+    },
+    log,
+  )
 
   // ---- IPC ----
   // A folder that is not a valid game folder is reported by the patcher as
@@ -279,6 +284,7 @@ async function bootstrap(): Promise<void> {
   ipcMain.handle(IPC.windowMinimize, () => win?.minimize())
   ipcMain.handle(IPC.windowClose, () => win?.close())
   ipcMain.handle(IPC.updaterInstall, () => updater.install())
+  ipcMain.handle(IPC.updaterCheck, () => updater.check())
 
   // ---- window & lifecycle ----
   win = createMainWindow()
@@ -368,4 +374,19 @@ async function probeGpu(): Promise<GpuDetection> {
   } finally {
     clearTimeout(timer)
   }
+}
+
+/**
+ * electron-updater configured for the launcher feed: auto-download, install
+ * on quit. Null in dev or while the feed URL is the placeholder, which turns
+ * self-update off.
+ */
+function autoUpdaterEngine(feedUrl: string): UpdaterEngine | null {
+  if (!app.isPackaged || feedUrl.includes('REPLACE_WITH_DOMAIN')) return null
+  const { autoUpdater } = electronUpdater
+  autoUpdater.logger = log
+  autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl })
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  return autoUpdater
 }

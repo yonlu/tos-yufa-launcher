@@ -37,6 +37,8 @@ interface LauncherStore {
   repair(): Promise<void>
   checkRuntimes(): Promise<void>
   cancel(): Promise<void>
+  /** Settings' Check now. The answer arrives as an `updater` status. */
+  checkForLauncherUpdate(): Promise<void>
   play(): Promise<void>
   saveSettings(p: Partial<Settings>): Promise<void>
   /**
@@ -115,6 +117,7 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   repair: () => window.yufa.patcherRepair(),
   checkRuntimes: () => window.yufa.patcherCheckRuntimes(),
   cancel: () => window.yufa.patcherCancel(),
+  checkForLauncherUpdate: () => window.yufa.updaterCheck(),
 
   async play() {
     set({ launching: true })

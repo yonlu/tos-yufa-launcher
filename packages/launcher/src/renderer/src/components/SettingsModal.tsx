@@ -8,8 +8,19 @@ import { useLauncher } from '../store'
 import { CompatibilityFixRefusal } from './CompatibilityFixRefusal'
 
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { settings, restartRequired, gpu, saveSettings, selectGamePath, repair, checkRuntimes, setCompatibilityFix } =
-    useLauncher()
+  const {
+    settings,
+    restartRequired,
+    gpu,
+    version,
+    updater,
+    saveSettings,
+    selectGamePath,
+    repair,
+    checkRuntimes,
+    setCompatibilityFix,
+    checkForLauncherUpdate,
+  } = useLauncher()
   const { t } = useTranslation()
   const [invalidPath, setInvalidPath] = useState(false)
   // the Compatibility fix switch: what the last enable or disable said, shown under its row
@@ -42,6 +53,8 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
     }
   }
   const adapter = amdAdapterName(gpu)
+  // Check now is a no-op in main while a check or download runs; the button says so too
+  const updaterBusy = updater.status === 'checking' || updater.status === 'available' || updater.status === 'downloading'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
@@ -139,6 +152,35 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
               </span>
             </label>
             {restartRequired && <p className="mt-1 pl-6 text-xs text-tos-burgundy">{t('settings.restartRequired')}</p>}
+          </div>
+
+          <div className="rounded-tos-panel border border-tos-border bg-tos-tan/60 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm text-tos-brown">
+                <span className="block">{t('settings.launcherVersion', { version })}</span>
+                <span className="mt-0.5 block text-xs text-tos-brown-muted">
+                  {t(`settings.updater.${updater.status}`, { version: updater.version ?? '', percent: updater.percent ?? 0 })}
+                </span>
+              </div>
+              {updater.status === 'ready' ? (
+                <button
+                  type="button"
+                  onClick={() => void window.yufa.updaterInstall()}
+                  className={`shrink-0 font-display font-bold ${surfaceButton}`}
+                >
+                  {t('updater.restart')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={updaterBusy}
+                  onClick={() => void checkForLauncherUpdate()}
+                  className={`shrink-0 ${surfaceButton} disabled:opacity-60`}
+                >
+                  {t('settings.checkNow')}
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="rounded-tos-panel border border-tos-border bg-tos-tan/60 p-3">

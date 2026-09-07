@@ -23,6 +23,7 @@ export const IPC = {
   windowMinimize: 'window:minimize',
   windowClose: 'window:close',
   updaterInstall: 'updater:install',
+  updaterCheck: 'updater:check',
   dxvkEnable: 'dxvk:enable',
   dxvkDisable: 'dxvk:disable',
   // main → renderer events
@@ -251,6 +252,8 @@ export interface YufaApi {
   windowMinimize(): void
   windowClose(): void
   updaterInstall(): Promise<void>
+  /** Settings' Check now: asks the feed again. Ignored while a check or download is in flight. */
+  updaterCheck(): Promise<void>
   /** Switches the Compatibility fix on: places `release/d3d9.dll` and sets the flag, or says why not. */
   dxvkEnable(): Promise<DxvkResult>
   /** Switches the Compatibility fix off: clears the flag and removes the file when it is the launcher's own. */

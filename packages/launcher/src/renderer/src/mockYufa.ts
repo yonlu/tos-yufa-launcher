@@ -18,8 +18,9 @@ import type {
  * (warning on a ready launcher), &amd=1 (an AMD adapter in the GPU list; the prompt shows on ready unless
  * &prompted), &dxvk=on (the Compatibility fix switched on) or &dxvk=foreign (a d3d9.dll the launcher does not
  * recognise blocks it), &hwaccel=off (hardware acceleration switched off at "boot", so switching it back on asks
- * for a restart), &view=settings (Settings open on start). Every UI state can be exercised without
- * Electron or a patch server.
+ * for a restart), &view=settings (Settings open on start), &updater=checking|none|available|downloading|ready|error
+ * (the launcher update status a second after start; Check now in Settings always runs checking then none).
+ * Every UI state can be exercised without Electron or a patch server.
  */
 export function installMockIfNeeded(): void {
   if (window.yufa) return
@@ -31,6 +32,7 @@ export function installMockIfNeeded(): void {
   const stateListeners = new Set<(e: PatcherStateEvent) => void>()
   const progressListeners = new Set<(e: PatcherProgressEvent) => void>()
   const updaterListeners = new Set<(e: UpdaterStatusEvent) => void>()
+  const emitUpdater = (e: UpdaterStatusEvent): void => updaterListeners.forEach((cb) => cb(e))
 
   const DEFAULT_INSTALL_DIR = 'C:\\Hyped Games\\ToS Classic'
   const settings: Settings = {
@@ -274,6 +276,10 @@ export function installMockIfNeeded(): void {
     windowMinimize: () => console.log('[mock] minimize'),
     windowClose: () => console.log('[mock] close'),
     updaterInstall: async () => console.log('[mock] quitAndInstall'),
+    updaterCheck: async () => {
+      emitUpdater({ status: 'checking' })
+      setTimeout(() => emitUpdater({ status: 'none' }), 1200)
+    },
     dxvkEnable,
     dxvkDisable,
     onPatcherState: (cb) => {
