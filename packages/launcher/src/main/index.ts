@@ -3,7 +3,9 @@ import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron'
 import log from 'electron-log/main'
 import {
   IPC,
+  type AppInfo,
   type ErrorInfo,
+  type GpuDetection,
   type LaunchResult,
   type PatcherProgressEvent,
   type PatcherStateEvent,
@@ -12,6 +14,7 @@ import {
 } from '@yufa/shared'
 import { DEFAULT_INSTALL_DIR, FALLBACK_NEWS_URL, LAUNCHER_FEED_URL, MANIFEST_URL, REDIST_INDEX_URL } from './constants'
 import { isGameRunning, launchGame } from './game'
+import { describeGpu, detectAmdGpu, noGpu } from './gpu'
 import { validateInstallPath } from './installPath'
 import { cleanupStaleParts, gamePaths, isValidGameDir, probeGameDirWritable } from './localState'
 import { fetchNews } from './news'
@@ -36,6 +39,9 @@ async function bootstrap(): Promise<void> {
 
   log.initialize()
   log.info(`launcher ${app.getVersion()} starting (manifest: ${MANIFEST_URL})`)
+
+  // Kicked off now so the answer is usually in hand when the renderer asks for app info.
+  const gpuDetection = probeGpu()
 
   // Without a known game folder the install panel targets the publisher default.
   const settings = new SettingsStore(app.getPath('userData'))
@@ -215,7 +221,7 @@ async function bootstrap(): Promise<void> {
     return fetchNews(newsUrl, join(app.getPath('userData'), 'news-cache.json'), electronFetch)
   })
 
-  ipcMain.handle(IPC.appGetVersion, () => app.getVersion())
+  ipcMain.handle(IPC.appGetInfo, async (): Promise<AppInfo> => ({ version: app.getVersion(), gpu: await gpuDetection }))
   ipcMain.handle(IPC.appOpenExternal, (_e, url: string) => {
     if (/^https?:/i.test(url)) void shell.openExternal(url)
   })
@@ -274,4 +280,32 @@ async function detectGamePath(): Promise<string> {
     if (await isValidGameDir(c)) return c
   }
   return ''
+}
+
+/** How long the GPU probe may hold up app info before the launcher assumes no AMD adapter. */
+const GPU_INFO_TIMEOUT_MS = 5000
+
+/**
+ * The Compatibility fix's detection (ADR 0003): Chromium's own GPU list, no
+ * WMI, no elevation. A probe that fails or stalls yields no AMD and a log
+ * line; the switch in Settings still works by hand.
+ */
+async function probeGpu(): Promise<GpuDetection> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const info = await Promise.race([
+      app.getGPUInfo('basic'),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`no answer in ${GPU_INFO_TIMEOUT_MS} ms`)), GPU_INFO_TIMEOUT_MS)
+      }),
+    ])
+    const result = detectAmdGpu(info)
+    log.info(`gpu: ${describeGpu(result)}`)
+    return result
+  } catch (err) {
+    log.warn(`gpu: probe failed (${err instanceof Error ? err.message : String(err)}); assuming no AMD adapter`)
+    return noGpu()
+  } finally {
+    clearTimeout(timer)
+  }
 }

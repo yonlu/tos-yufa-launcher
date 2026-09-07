@@ -17,7 +17,7 @@ export const IPC = {
   installBrowse: 'install:browse',
   installStart: 'install:start',
   newsGet: 'news:get',
-  appGetVersion: 'app:getVersion',
+  appGetInfo: 'app:getInfo',
   appOpenExternal: 'app:openExternal',
   appOpenLogs: 'app:openLogs',
   windowMinimize: 'window:minimize',
@@ -136,6 +136,34 @@ export interface Settings {
   afterLaunch: 'quit' | 'minimize' | 'stay'
   downloadConcurrency: 1 | 2 | 3
   allowOfflinePlay: boolean
+  /** The Compatibility fix (ADR 0003) is on. The switch is the only state; the file follows it. */
+  amdCompatibilityEnabled: boolean
+  /** The one-time AMD prompt has been answered, either way. */
+  amdCompatibilityPrompted: boolean
+}
+
+/** One adapter from `app.getGPUInfo('basic')`, PCI ids normalised to lowercase `0x` hex; null when unreadable. */
+export interface GpuAdapter {
+  vendorId: string | null
+  deviceId: string | null
+  /** Electron's `active` flag: the adapter Chromium renders on. A hybrid laptop lists the other one as inactive. */
+  active: boolean
+  /** PCI vendor 0x1002. */
+  amd: boolean
+  /** Electron's `deviceString` when it reports one; null in a basic probe that lacks it. */
+  name: string | null
+}
+
+/** Whether the Compatibility fix should be offered. Any listed AMD adapter counts, active or not. */
+export interface GpuDetection {
+  amdDetected: boolean
+  adapters: GpuAdapter[]
+}
+
+/** What the renderer learns about this run once, at startup. */
+export interface AppInfo {
+  version: string
+  gpu: GpuDetection
 }
 
 export interface UpdaterStatusEvent {
@@ -175,7 +203,7 @@ export interface YufaApi {
   /** Makes `path` the game folder and installs the Current Manifest into it, or resumes what is there. */
   installStart(path: string): Promise<void>
   newsGet(): Promise<NewsResult>
-  appGetVersion(): Promise<string>
+  appGetInfo(): Promise<AppInfo>
   appOpenExternal(url: string): Promise<void>
   appOpenLogs(): Promise<void>
   windowMinimize(): void

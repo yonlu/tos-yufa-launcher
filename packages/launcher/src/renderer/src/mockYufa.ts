@@ -1,4 +1,5 @@
 import type {
+  GpuDetection,
   InstallPathCheck,
   InstallPathProblem,
   PatcherProgressEvent,
@@ -13,7 +14,8 @@ import type {
  * Browser/dev harness: installed only when the preload bridge is absent.
  * Drive states via the URL, e.g. ?mock=updating, ?mock=error&code=offline,
  * ?mock=not-installed[&partial][&nospace], ?mock=resume, ?mock=runtimes, &redist=failed|declined
- * (warning on a ready launcher) — lets every UI state be exercised without Electron or a patch server.
+ * (warning on a ready launcher), &amd=1 (an AMD adapter in the GPU list) — lets every UI state be
+ * exercised without Electron or a patch server.
  */
 export function installMockIfNeeded(): void {
   if (window.yufa) return
@@ -34,7 +36,23 @@ export function installMockIfNeeded(): void {
     afterLaunch: 'quit',
     downloadConcurrency: 2,
     allowOfflinePlay: true,
+    amdCompatibilityEnabled: false,
+    amdCompatibilityPrompted: false,
   }
+
+  /** ?amd=1 puts a Radeon next to the integrated adapter, the hybrid-laptop case the prompt exists for. */
+  const gpu: GpuDetection = params.has('amd')
+    ? {
+        amdDetected: true,
+        adapters: [
+          { vendorId: '0x8086', deviceId: '0x9a49', active: true, amd: false, name: 'Intel(R) Iris(R) Xe Graphics' },
+          { vendorId: '0x1002', deviceId: '0x73df', active: false, amd: true, name: 'AMD Radeon RX 6700 XT' },
+        ],
+      }
+    : {
+        amdDetected: false,
+        adapters: [{ vendorId: '0x10de', deviceId: '0x2484', active: true, amd: false, name: 'NVIDIA GeForce RTX 3070' }],
+      }
 
   const plan = { fileCount: 3, deleteCount: 0, totalBytes: 157_286_400, targetRevision: 234932, localRevision: 234929 }
   const BUILD_BYTES = 13_400_000_000
@@ -213,7 +231,7 @@ export function installMockIfNeeded(): void {
         },
       ],
     }),
-    appGetVersion: async () => '1.0.0-mock',
+    appGetInfo: async () => ({ version: '1.0.0-mock', gpu }),
     appOpenExternal: async (url) => void window.open(url, '_blank'),
     appOpenLogs: async () => console.log('[mock] open logs'),
     windowMinimize: () => console.log('[mock] minimize'),

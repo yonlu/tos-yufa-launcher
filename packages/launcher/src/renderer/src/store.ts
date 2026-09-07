@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type {
+  GpuDetection,
   InstallPathCheck,
   NewsResult,
   PatcherProgressEvent,
@@ -19,6 +20,8 @@ interface LauncherStore {
   settings: Settings | null
   news: NewsResult | null
   version: string
+  /** What main found in the GPU list; null until app info arrives. */
+  gpu: GpuDetection | null
   launching: boolean
   initialized: boolean
   /** Install panel: the folder in the field, and what the main process last said about it. */
@@ -49,6 +52,7 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   settings: null,
   news: null,
   version: '',
+  gpu: null,
   launching: false,
   initialized: false,
   installPath: '',
@@ -78,8 +82,8 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
     yufa.onPatcherProgress((e) => set({ progress: e }))
     yufa.onUpdaterStatus((e) => set({ updater: e }))
 
-    const [settings, version] = await Promise.all([yufa.settingsGet(), yufa.appGetVersion()])
-    set({ settings, version })
+    const [settings, info] = await Promise.all([yufa.settingsGet(), yufa.appGetInfo()])
+    set({ settings, version: info.version, gpu: info.gpu })
     await i18n.changeLanguage(settings.language)
 
     await get().check()
