@@ -238,8 +238,11 @@ try {
     const foreign = join(paths.gameDir, 'release', DXVK_FILE)
     await fs.writeFile(foreign, 'not DXVK: a d3d9.dll the player put there')
     const planted = await sha256File(foreign)
+    const env = { YUFA_GPU: 'amd', YUFA_VIEW: 'settings' }
     await seedSettings({ language: 'pt-BR', amdCompatibilityEnabled: true })
-    const shot = await runLauncher('10-fix-blocked-settings-pt', { YUFA_GPU: 'amd', YUFA_VIEW: 'settings' }, panelShotMs)
+    const shotPt = await runLauncher('10-fix-blocked-settings-pt', env, panelShotMs)
+    await seedSettings({ language: 'en' })
+    const shotEn = await runLauncher('11-fix-blocked-settings-en', env, panelShotMs)
     if (!existsSync(foreign)) throw new Error(`the foreign release/${DXVK_FILE} was removed`)
     if ((await sha256File(foreign)) !== planted) throw new Error(`the foreign release/${DXVK_FILE} was overwritten`)
     if (!(await fixSwitchInConfig())) throw new Error('reconciling flipped the switch off in config.json')
@@ -247,7 +250,7 @@ try {
     await fs.rm(foreign)
     await seedSettings({ amdCompatibilityEnabled: false })
     await expectReleaseMatchesRecord(paths.gameDir)
-    return shot
+    return `${shotPt}, ${shotEn}`
   })
 } finally {
   await server.close()

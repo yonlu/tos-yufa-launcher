@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { DxvkResult } from '@yufa/shared'
+import type { DxvkResult, Settings } from '@yufa/shared'
 // the pin module alone: the package root would drag zod's schemas into the renderer bundle
 import { DXVK_VERSION } from '@yufa/shared/dxvk'
 import { amdAdapterName } from '../lib/compatibilityFix'
@@ -15,13 +15,13 @@ const surfaceButton =
   'rounded-md bg-tos-tan px-3 py-2 text-sm text-tos-brown-light hover:bg-tos-border hover:text-tos-brown disabled:opacity-60'
 
 /** One setting: title and a one-line hint on the left, its control on the right, anything that needs the full width under both. */
-function Row({ title, hint, extra, note, children }: { title: string; hint?: string; extra?: ReactNode; note?: ReactNode; children: ReactNode }) {
+function Row({ title, hint, extra, note, children }: { title: string; hint: string; extra?: ReactNode; note?: ReactNode; children: ReactNode }) {
   return (
     <div className="border-b border-tos-border py-4 last:border-0">
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-tos-brown">{title}</p>
-          {hint && <p className="mt-0.5 text-xs text-tos-brown-light">{hint}</p>}
+          <p className="mt-0.5 text-xs text-tos-brown-light">{hint}</p>
           {extra}
         </div>
         <div className="flex shrink-0 items-center gap-2">{children}</div>
@@ -31,16 +31,34 @@ function Row({ title, hint, extra, note, children }: { title: string; hint?: str
   )
 }
 
+/** What the Game section has said during this visit. Kept by the dialog, so a trip to the other section does not lose it. */
+interface GameVisit {
+  /** Browse picked a folder without a game in it. */
+  invalidPath: boolean
+  /** The Compatibility fix switch: what the last enable or disable said, shown under its row. */
+  fixResult: DxvkResult | null
+  fixWorking: boolean
+}
+const FRESH_VISIT: GameVisit = { invalidPath: false, fixResult: null, fixWorking: false }
+
 /**
  * Settings: a sidebar with the two sections and Close at its foot, and a
  * scrolling pane with one row per setting. Every control saves on change;
- * there is no Apply. Stays mounted while closed, so a refusal under the
- * Compatibility fix switch belongs to the visit it happened in.
+ * there is no Apply. Closing ends the visit: the next one opens at the
+ * start section with nothing left over (a refusal under the Compatibility
+ * fix switch, an invalid folder).
  */
 export function SettingsDialog({ open, initialSection, onClose }: { open: boolean; initialSection: SettingsSection; onClose: () => void }) {
   const { t } = useTranslation()
   const [section, setSection] = useState<SettingsSection>(initialSection)
+  const [visit, setVisit] = useState<GameVisit>(FRESH_VISIT)
   const settings = useLauncher((s) => s.settings)
+  useEffect(() => {
+    if (!open) {
+      setSection(initialSection)
+      setVisit(FRESH_VISIT)
+    }
+  }, [open, initialSection])
 
   if (!open || !settings) return null
 
@@ -82,37 +100,35 @@ export function SettingsDialog({ open, initialSection, onClose }: { open: boolea
 
         <div className="min-w-0 flex-1 overflow-y-auto px-8 py-5">
           <h3 className="font-display mb-1 text-base font-bold text-tos-burgundy">{t(`settings.section.${section}`)}</h3>
-          {section === 'game' ? <GameSection open={open} onClose={onClose} /> : <LauncherSection />}
+          {section === 'game' ? (
+            <GameSection visit={visit} onVisit={(patch) => setVisit((v) => ({ ...v, ...patch }))} onClose={onClose} />
+          ) : (
+            <LauncherSection />
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-function GameSection({ open, onClose }: { open: boolean; onClose: () => void }) {
+function GameSection({ visit, onVisit, onClose }: { visit: GameVisit; onVisit: (patch: Partial<GameVisit>) => void; onClose: () => void }) {
   const { t } = useTranslation()
   const { settings, gpu, patcher, saveSettings, selectGamePath, repair, checkRuntimes, setCompatibilityFix } = useLauncher()
-  const [invalidPath, setInvalidPath] = useState(false)
-  // the Compatibility fix switch: what the last enable or disable of this visit said, shown under its row
-  const [fixResult, setFixResult] = useState<DxvkResult | null>(null)
-  const [fixWorking, setFixWorking] = useState(false)
-  useEffect(() => {
-    if (!open) setFixResult(null)
-  }, [open])
+  const { invalidPath, fixResult, fixWorking } = visit
 
   if (!settings) return null
 
   async function browse(): Promise<void> {
     const result = await selectGamePath()
-    if (result) setInvalidPath(!result.valid)
+    if (result) onVisit({ invalidPath: !result.valid })
   }
 
   async function toggleFix(on: boolean): Promise<void> {
-    setFixWorking(true)
+    onVisit({ fixWorking: true })
     try {
-      setFixResult(await setCompatibilityFix(on))
+      onVisit({ fixResult: await setCompatibilityFix(on) })
     } finally {
-      setFixWorking(false)
+      onVisit({ fixWorking: false })
     }
   }
 
@@ -146,7 +162,7 @@ function GameSection({ open, onClose }: { open: boolean; onClose: () => void }) 
         <select
           className={`${field} w-52`}
           value={settings.afterLaunch}
-          onChange={(e) => void saveSettings({ afterLaunch: e.target.value as 'quit' | 'minimize' | 'stay' })}
+          onChange={(e) => void saveSettings({ afterLaunch: e.target.value as Settings['afterLaunch'] })}
           aria-label={t('settings.afterLaunch')}
         >
           <option value="quit">{t('settings.afterLaunch.quit')}</option>
@@ -219,7 +235,7 @@ function LauncherSection() {
         <select
           className={`${field} w-52`}
           value={settings.language}
-          onChange={(e) => void saveSettings({ language: e.target.value as 'pt-BR' | 'en' })}
+          onChange={(e) => void saveSettings({ language: e.target.value as Settings['language'] })}
           aria-label={t('settings.language')}
         >
           <option value="pt-BR">Português (Brasil)</option>
@@ -231,7 +247,7 @@ function LauncherSection() {
         <select
           className={`${field} w-52`}
           value={settings.downloadConcurrency}
-          onChange={(e) => void saveSettings({ downloadConcurrency: Number(e.target.value) as 1 | 2 | 3 })}
+          onChange={(e) => void saveSettings({ downloadConcurrency: Number(e.target.value) as Settings['downloadConcurrency'] })}
           aria-label={t('settings.downloadConcurrency')}
         >
           <option value={1}>1</option>

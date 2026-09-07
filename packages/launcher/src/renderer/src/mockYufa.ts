@@ -37,6 +37,10 @@ export function installMockIfNeeded(): void {
   const emitUpdater = (e: UpdaterStatusEvent): void => updaterListeners.forEach((cb) => cb(e))
 
   const DEFAULT_INSTALL_DIR = 'C:\\Hyped Games\\ToS Classic'
+  /** ?dxvk=on|foreign|blocked: the Compatibility fix switch on, someone else's d3d9.dll in the way, or both. */
+  const dxvkMode = params.get('dxvk')
+  const dxvkSwitchOn = dxvkMode === 'on' || dxvkMode === 'blocked'
+  const dxvkForeignFile = dxvkMode === 'foreign' || dxvkMode === 'blocked'
   const settings: Settings = {
     gamePath: scenario === 'not-installed' ? DEFAULT_INSTALL_DIR : 'C:\\tos-servers\\Classic',
     language: (params.get('lang') as 'pt-BR' | 'en') ?? 'pt-BR',
@@ -45,7 +49,7 @@ export function installMockIfNeeded(): void {
     downloadConcurrency: 2,
     allowOfflinePlay: true,
     hardwareAcceleration: params.get('hwaccel') !== 'off',
-    amdCompatibilityEnabled: params.get('dxvk') === 'on' || params.get('dxvk') === 'blocked',
+    amdCompatibilityEnabled: dxvkSwitchOn,
     amdCompatibilityPrompted: params.has('prompted'),
   }
 
@@ -66,9 +70,9 @@ export function installMockIfNeeded(): void {
         adapters: [{ vendorId: '0x10de', deviceId: '0x2484', active: true, amd: false, name: 'NVIDIA GeForce RTX 3070' }],
       }
 
-  /** The Compatibility fix on a fake release/: the switch is the only state, ?dxvk=foreign|blocked puts someone else's file in the way. */
+  /** The Compatibility fix on a fake release/: the switch is the only state, the foreign file refuses every operation. */
   const foreignDll = (): DxvkResult | null =>
-    params.get('dxvk') === 'foreign' || params.get('dxvk') === 'blocked'
+    dxvkForeignFile
       ? {
           outcome: 'foreign',
           enabled: settings.amdCompatibilityEnabled,
@@ -90,8 +94,8 @@ export function installMockIfNeeded(): void {
   /** What reconciling at ready reports: nothing with the switch off, else the same as an enable. */
   const dxvkReconcile = (): Promise<DxvkResult | undefined> =>
     settings.amdCompatibilityEnabled ? dxvkEnable() : Promise.resolve(undefined)
-  /** The same, for the state a check lands on: with the switch on, the file is there or something else is in its way. */
-  const dxvkReconciled = (): DxvkResult | undefined =>
+  /** What the state a check lands on carries: with the switch on, the file is there or something else is in its way. */
+  const dxvkAtReady = (): DxvkResult | undefined =>
     settings.amdCompatibilityEnabled ? (foreignDll() ?? { outcome: 'present', enabled: true }) : undefined
 
   const plan = { fileCount: 3, deleteCount: 0, totalBytes: 157_286_400, targetRevision: 234932, localRevision: 234929 }
@@ -194,7 +198,7 @@ export function installMockIfNeeded(): void {
   const checkResult = (): PatcherStateEvent => {
     switch (scenario) {
       case 'up-to-date':
-        return { state: 'up-to-date', plan: { ...plan, fileCount: 0, totalBytes: 0 }, redist: redistOutcome(), dxvk: dxvkReconciled() }
+        return { state: 'up-to-date', plan: { ...plan, fileCount: 0, totalBytes: 0 }, redist: redistOutcome(), dxvk: dxvkAtReady() }
       case 'runtimes':
         return { state: 'installing-runtimes', redist: { status: 'installing', missing: ['vcredist', 'directx'] } }
       case 'not-installed':

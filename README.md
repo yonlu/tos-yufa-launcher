@@ -73,7 +73,7 @@ npm run dist
 npm run e2e        # painel de instalação → instala Build 1 (prompt AMD) → liga a correção → atualiza para Build 2 → rollback 1 → desliga a correção → seção Launcher → d3d9.dll estranho bloqueia a correção
 ```
 
-Os dois últimos passos são o Compatibility fix: ligado, `release\d3d9.dll` tem o hash fixado e sobrevive à atualização e ao rollback sem entrar no Install Record; desligado, `release\` volta a ser byte a byte o que o Install Record lista (mais o `release.revision.txt`, que é do launcher). As fotos com `YUFA_GPU=amd` mostram o prompt e a chave nas Configurações, em português e em inglês; as duas últimas etapas fotografam a seção Launcher nos dois idiomas e a recusa por um `d3d9.dll` que não é do launcher, que fica intacto.
+Os dois últimos passos são o Compatibility fix: ligado, `release\d3d9.dll` tem o hash fixado e sobrevive à atualização e ao rollback sem entrar no Install Record; desligado, `release\` volta a ser byte a byte o que o Install Record lista (mais o `release.revision.txt`, que é do launcher). As fotos com `YUFA_GPU=amd` mostram o prompt e a chave nas Configurações, em português e em inglês; as duas últimas etapas fotografam a seção Launcher e a recusa por um `d3d9.dll` que não é do launcher (que fica intacto), cada uma nos dois idiomas.
 
 ## Launcher (instalação e self-update)
 
