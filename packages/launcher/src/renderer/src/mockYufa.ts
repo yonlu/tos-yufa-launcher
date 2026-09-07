@@ -277,6 +277,17 @@ export function installMockIfNeeded(): void {
           title: { 'pt-BR': 'Evento de EXP em dobro', en: 'Double EXP event' },
           body: { 'pt-BR': 'Até 07/07, EXP em dobro em todos os mapas!', en: 'Until Jul 7, double EXP on all maps!' },
         },
+        {
+          id: '3',
+          date: '2026-06-20',
+          pinned: false,
+          title: { 'pt-BR': 'Manutenção concluída', en: 'Maintenance complete' },
+          body: {
+            'pt-BR': 'O servidor voltou com a correção do lag em Fedimian e o balanceamento de classes da semana.',
+            en: 'The server is back with the Fedimian lag fix and this week\'s class balance changes.',
+          },
+          url: 'https://example.com/maintenance',
+        },
       ],
     }),
     appGetInfo: async () => ({ version: '1.0.0-mock', gpu }),

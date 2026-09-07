@@ -1,10 +1,13 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, screen, shell } from 'electron'
+import { clampToWorkArea, WINDOW_TARGET } from './windowSize'
 
 export function createMainWindow(): BrowserWindow {
+  // the target size, or as much of it as the primary display leaves beside the taskbar
+  const { width, height } = clampToWorkArea(WINDOW_TARGET, screen.getPrimaryDisplay().workAreaSize)
   const win = new BrowserWindow({
-    width: 1100,
-    height: 650,
+    width,
+    height,
     resizable: false,
     maximizable: false,
     frame: false,

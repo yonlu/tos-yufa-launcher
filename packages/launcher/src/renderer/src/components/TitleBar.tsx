@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import logoUrl from '../assets/logo.png'
+import logoUrl from '../assets/logo.webp'
 import { useLauncher } from '../store'
 
 const DRAG = { WebkitAppRegion: 'drag' } as unknown as CSSProperties
