@@ -30,6 +30,7 @@ const api: YufaApi = {
   installBrowse: (current, title) => ipcRenderer.invoke(IPC.installBrowse, current, title),
   installStart: (path) => ipcRenderer.invoke(IPC.installStart, path),
   newsGet: () => ipcRenderer.invoke(IPC.newsGet),
+  communityGet: () => ipcRenderer.invoke(IPC.communityGet),
   appGetInfo: () => ipcRenderer.invoke(IPC.appGetInfo),
   appOpenExternal: (url) => ipcRenderer.invoke(IPC.appOpenExternal, url),
   appOpenLogs: () => ipcRenderer.invoke(IPC.appOpenLogs),

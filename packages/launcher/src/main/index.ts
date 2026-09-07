@@ -17,7 +17,15 @@ import {
 } from '@yufa/shared'
 import { bootSettings } from './boot'
 import { bundledDxvkPath } from './bundledDxvk'
-import { DEFAULT_INSTALL_DIR, FALLBACK_NEWS_URL, LAUNCHER_FEED_URL, MANIFEST_URL, REDIST_INDEX_URL } from './constants'
+import { fetchDiscordCounts } from './community'
+import {
+  DEFAULT_INSTALL_DIR,
+  DISCORD_INVITE_CODE,
+  FALLBACK_NEWS_URL,
+  LAUNCHER_FEED_URL,
+  MANIFEST_URL,
+  REDIST_INDEX_URL,
+} from './constants'
 import { Dxvk } from './dxvk'
 import { isGameRunning, launchGame } from './game'
 import { describeGpu, detectAmdGpu, noGpu } from './gpu'
@@ -273,6 +281,8 @@ async function bootstrap(): Promise<void> {
     const newsUrl = patcher.loadedManifest?.newsUrl ?? FALLBACK_NEWS_URL
     return fetchNews(newsUrl, join(app.getPath('userData'), 'news-cache.json'), electronFetch)
   })
+
+  ipcMain.handle(IPC.communityGet, () => fetchDiscordCounts(DISCORD_INVITE_CODE, electronFetch))
 
   ipcMain.handle(IPC.appGetInfo, async (): Promise<AppInfo> => ({ version: app.getVersion(), gpu: await gpuDetection }))
   ipcMain.handle(IPC.appOpenExternal, (_e, url: string) => {

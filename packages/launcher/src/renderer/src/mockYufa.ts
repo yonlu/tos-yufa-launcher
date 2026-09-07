@@ -21,7 +21,8 @@ import type {
  * reports the refusal), &hwaccel=off (hardware acceleration switched off at "boot", so switching it back on asks
  * for a restart), &view=settings or &view=settings:launcher (Settings open on start, at that section),
  * &updater=checking|none|available|downloading|ready|error
- * (the launcher update status a second after start; Check now in Settings always runs checking then none).
+ * (the launcher update status a second after start; Check now in Settings always runs checking then none),
+ * &discord=off (the Discord counts fail, so the community card shows no numbers).
  * Every UI state can be exercised without Electron or a patch server.
  */
 export function installMockIfNeeded(): void {
@@ -290,6 +291,7 @@ export function installMockIfNeeded(): void {
         },
       ],
     }),
+    communityGet: async () => (params.get('discord') === 'off' ? null : { online: 87, members: 2431 }),
     appGetInfo: async () => ({ version: '1.0.0-mock', gpu }),
     appOpenExternal: async (url) => void window.open(url, '_blank'),
     appOpenLogs: async () => console.log('[mock] open logs'),

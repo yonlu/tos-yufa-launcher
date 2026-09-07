@@ -17,6 +17,7 @@ export const IPC = {
   installBrowse: 'install:browse',
   installStart: 'install:start',
   newsGet: 'news:get',
+  communityGet: 'community:get',
   appGetInfo: 'app:getInfo',
   appOpenExternal: 'app:openExternal',
   appOpenLogs: 'app:openLogs',
@@ -218,6 +219,15 @@ export interface NewsResult {
   stale: boolean
 }
 
+/**
+ * What the community card shows: who is on the Discord right now and how many joined. Read from the invite's
+ * approximate counts in the main process; null whenever that read fails, and the card then omits the numbers.
+ */
+export interface CommunityCounts {
+  online: number
+  members: number
+}
+
 export interface LaunchResult {
   ok: boolean
   error?: ErrorInfo
@@ -246,6 +256,8 @@ export interface YufaApi {
   /** Makes `path` the game folder and installs the Current Manifest into it, or resumes what is there. */
   installStart(path: string): Promise<void>
   newsGet(): Promise<NewsResult>
+  /** Discord online and member counts for the community card; null on any failure. Never on a timer. */
+  communityGet(): Promise<CommunityCounts | null>
   appGetInfo(): Promise<AppInfo>
   appOpenExternal(url: string): Promise<void>
   appOpenLogs(): Promise<void>

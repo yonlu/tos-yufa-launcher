@@ -14,5 +14,8 @@ export const FALLBACK_NEWS_URL = MANIFEST_URL.replace(/manifest\.json.*$/, 'news
 export const REDIST_INDEX_URL =
   process.env['YUFA_REDIST_INDEX_URL'] ?? MANIFEST_URL.replace(/manifest\.json.*$/, 'redist/index.json')
 
+/** The site's permanent Discord invite; its public approximate counts feed the community card. */
+export const DISCORD_INVITE_CODE = '3W92P2RYzk'
+
 /** Publisher folder convention: the game goes next to the launcher under Hyped Games on the system drive. */
 export const DEFAULT_INSTALL_DIR = `${process.env['SystemDrive'] ?? 'C:'}\\Hyped Games\\ToS Classic`
