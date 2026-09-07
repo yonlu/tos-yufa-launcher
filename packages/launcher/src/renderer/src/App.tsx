@@ -9,22 +9,23 @@ import { InstallPanel } from './components/InstallPanel'
 import { NewsPanel } from './components/NewsPanel'
 import { PlayButton } from './components/PlayButton'
 import { RuntimeWarning } from './components/RuntimeWarning'
-import { SettingsModal } from './components/SettingsModal'
+import { SettingsDialog } from './components/SettingsDialog'
 import { StatusArea } from './components/StatusArea'
 import { TitleBar } from './components/TitleBar'
 import { UpdateToast } from './components/UpdateToast'
 import './i18n'
+import { settingsSectionFromView } from './lib/settingsDialog'
 import { installMockIfNeeded } from './mockYufa'
 import { useLauncher } from './store'
 
 installMockIfNeeded()
 
-/** `?view=settings` opens Settings on start: the screenshot smoke (YUFA_VIEW in main) and the dev harness use it. */
-const startInSettings = new URLSearchParams(location.search).get('view') === 'settings'
+/** `?view=settings` or `settings:launcher` opens Settings on start: the screenshot smoke (YUFA_VIEW in main) and the dev harness use it. */
+const startSection = settingsSectionFromView(new URLSearchParams(location.search).get('view'))
 
 export default function App() {
   const init = useLauncher((s) => s.init)
-  const [settingsOpen, setSettingsOpen] = useState(startInSettings)
+  const [settingsOpen, setSettingsOpen] = useState(startSection !== null)
   const { t } = useTranslation()
 
   useEffect(() => {
@@ -73,7 +74,7 @@ export default function App() {
       </div>
 
       <UpdateToast />
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsDialog open={settingsOpen} initialSection={startSection ?? 'game'} onClose={() => setSettingsOpen(false)} />
       <CompatibilityFixPrompt />
     </div>
   )

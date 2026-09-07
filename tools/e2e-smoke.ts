@@ -3,7 +3,7 @@ import { existsSync, promises as fs } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { rollback } from '../packages/publish-cli/src/commands'
 import { sha256File } from '../packages/publish-cli/src/hash'
-import { manifestSchema, type Manifest } from '../packages/shared/src/index'
+import { DXVK_FILE, manifestSchema, type Manifest } from '../packages/shared/src/index'
 import { argOption } from './cli'
 import { createDevServer } from './dev-server'
 import { expectCompatibilityFix, expectReleaseMatchesRecord, readInstallRecord } from './e2e-checks'
@@ -12,10 +12,11 @@ import { buildSandbox, bumpSandbox, sandboxCtx, sandboxPaths } from './e2e-setup
 /**
  * Rehearses the whole pipeline against the PACKAGED launcher: install into an
  * empty folder, switch the Compatibility fix on, update to a bumped Build,
- * roll back, switch the fix off — each run captured by the screenshot smoke
- * hook and judged by what lands in the game folder. The runs with an AMD
- * adapter pretended (YUFA_GPU=amd) photograph the one-time prompt and the
- * Settings switch, in both languages between them.
+ * roll back, switch the fix off, then a foreign d3d9.dll in the way — each
+ * run captured by the screenshot smoke hook and judged by what lands in the
+ * game folder. The runs with an AMD adapter pretended (YUFA_GPU=amd)
+ * photograph the one-time prompt and the Settings switch, and the Settings
+ * runs cover both sections, in both languages between them.
  * Each `--*-delay` is the wait before that screenshot, in ms.
  *
  *   npm run dist                       # once: the packaged launcher under release-builds/win-unpacked
@@ -214,6 +215,38 @@ try {
     await seedSettings({ language: 'en', amdCompatibilityPrompted: true })
     const shot = await runLauncher('7-fix-off-settings-en', { YUFA_GPU: 'amd', YUFA_VIEW: 'settings' }, panelShotMs)
     await expectCompatibilityFix(paths.gameDir, 'absent')
+    return shot
+  })
+
+  await step('the Launcher section of Settings, pt-BR (screenshot only)', async () => {
+    await seedSettings({ language: 'pt-BR' })
+    const shot = await runLauncher('8-launcher-settings-pt', { YUFA_VIEW: 'settings:launcher' }, panelShotMs)
+    await expectCompatibilityFix(paths.gameDir, 'absent')
+    return shot
+  })
+
+  await step('the Launcher section of Settings, en (screenshot only)', async () => {
+    await seedSettings({ language: 'en' })
+    const shot = await runLauncher('9-launcher-settings-en', { YUFA_VIEW: 'settings:launcher' }, panelShotMs)
+    await expectCompatibilityFix(paths.gameDir, 'absent')
+    return shot
+  })
+
+  // someone else's d3d9.dll (ReShade, a DXVK copied by hand) with the switch on: reconciling at ready refuses,
+  // the switch's row in Settings says why, the switch stays on and the file stays byte for byte what it was
+  await step('a foreign d3d9.dll blocks the fix; Settings shows the refusal, the file is untouched', async () => {
+    const foreign = join(paths.gameDir, 'release', DXVK_FILE)
+    await fs.writeFile(foreign, 'not DXVK: a d3d9.dll the player put there')
+    const planted = await sha256File(foreign)
+    await seedSettings({ language: 'pt-BR', amdCompatibilityEnabled: true })
+    const shot = await runLauncher('10-fix-blocked-settings-pt', { YUFA_GPU: 'amd', YUFA_VIEW: 'settings' }, panelShotMs)
+    if (!existsSync(foreign)) throw new Error(`the foreign release/${DXVK_FILE} was removed`)
+    if ((await sha256File(foreign)) !== planted) throw new Error(`the foreign release/${DXVK_FILE} was overwritten`)
+    if (!(await fixSwitchInConfig())) throw new Error('reconciling flipped the switch off in config.json')
+    // leave the folder the way the disable step left it
+    await fs.rm(foreign)
+    await seedSettings({ amdCompatibilityEnabled: false })
+    await expectReleaseMatchesRecord(paths.gameDir)
     return shot
   })
 } finally {

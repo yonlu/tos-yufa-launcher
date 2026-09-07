@@ -16,9 +16,11 @@ import type {
  * Drive states via the URL, e.g. ?mock=updating, ?mock=error&code=offline,
  * ?mock=not-installed[&partial][&nospace], ?mock=resume, ?mock=runtimes, &redist=failed|declined
  * (warning on a ready launcher), &amd=1 (an AMD adapter in the GPU list; the prompt shows on ready unless
- * &prompted), &dxvk=on (the Compatibility fix switched on) or &dxvk=foreign (a d3d9.dll the launcher does not
- * recognise blocks it), &hwaccel=off (hardware acceleration switched off at "boot", so switching it back on asks
- * for a restart), &view=settings (Settings open on start), &updater=checking|none|available|downloading|ready|error
+ * &prompted), &dxvk=on (the Compatibility fix switched on), &dxvk=foreign (a d3d9.dll the launcher does not
+ * recognise makes enable refuse) or &dxvk=blocked (the switch on and that file in the way, so reconciling at ready
+ * reports the refusal), &hwaccel=off (hardware acceleration switched off at "boot", so switching it back on asks
+ * for a restart), &view=settings or &view=settings:launcher (Settings open on start, at that section),
+ * &updater=checking|none|available|downloading|ready|error
  * (the launcher update status a second after start; Check now in Settings always runs checking then none).
  * Every UI state can be exercised without Electron or a patch server.
  */
@@ -43,7 +45,7 @@ export function installMockIfNeeded(): void {
     downloadConcurrency: 2,
     allowOfflinePlay: true,
     hardwareAcceleration: params.get('hwaccel') !== 'off',
-    amdCompatibilityEnabled: params.get('dxvk') === 'on',
+    amdCompatibilityEnabled: params.get('dxvk') === 'on' || params.get('dxvk') === 'blocked',
     amdCompatibilityPrompted: params.has('prompted'),
   }
 
@@ -64,12 +66,12 @@ export function installMockIfNeeded(): void {
         adapters: [{ vendorId: '0x10de', deviceId: '0x2484', active: true, amd: false, name: 'NVIDIA GeForce RTX 3070' }],
       }
 
-  /** The Compatibility fix on a fake release/: the switch is the only state, ?dxvk=foreign puts someone else's file in the way. */
+  /** The Compatibility fix on a fake release/: the switch is the only state, ?dxvk=foreign|blocked puts someone else's file in the way. */
   const foreignDll = (): DxvkResult | null =>
-    params.get('dxvk') === 'foreign'
+    params.get('dxvk') === 'foreign' || params.get('dxvk') === 'blocked'
       ? {
           outcome: 'foreign',
-          enabled: false,
+          enabled: settings.amdCompatibilityEnabled,
           error: { code: 'foreign-dll', message: `${settings.gamePath}\\release\\d3d9.dll` },
         }
       : null
@@ -88,6 +90,9 @@ export function installMockIfNeeded(): void {
   /** What reconciling at ready reports: nothing with the switch off, else the same as an enable. */
   const dxvkReconcile = (): Promise<DxvkResult | undefined> =>
     settings.amdCompatibilityEnabled ? dxvkEnable() : Promise.resolve(undefined)
+  /** The same, for the state a check lands on: with the switch on, the file is there or something else is in its way. */
+  const dxvkReconciled = (): DxvkResult | undefined =>
+    settings.amdCompatibilityEnabled ? (foreignDll() ?? { outcome: 'present', enabled: true }) : undefined
 
   const plan = { fileCount: 3, deleteCount: 0, totalBytes: 157_286_400, targetRevision: 234932, localRevision: 234929 }
   const BUILD_BYTES = 13_400_000_000
@@ -189,7 +194,7 @@ export function installMockIfNeeded(): void {
   const checkResult = (): PatcherStateEvent => {
     switch (scenario) {
       case 'up-to-date':
-        return { state: 'up-to-date', plan: { ...plan, fileCount: 0, totalBytes: 0 }, redist: redistOutcome() }
+        return { state: 'up-to-date', plan: { ...plan, fileCount: 0, totalBytes: 0 }, redist: redistOutcome(), dxvk: dxvkReconciled() }
       case 'runtimes':
         return { state: 'installing-runtimes', redist: { status: 'installing', missing: ['vcredist', 'directx'] } }
       case 'not-installed':
