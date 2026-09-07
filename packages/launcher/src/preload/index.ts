@@ -30,7 +30,8 @@ const api: YufaApi = {
   installBrowse: (current, title) => ipcRenderer.invoke(IPC.installBrowse, current, title),
   installStart: (path) => ipcRenderer.invoke(IPC.installStart, path),
   newsGet: () => ipcRenderer.invoke(IPC.newsGet),
-  appGetVersion: () => ipcRenderer.invoke(IPC.appGetVersion),
+  communityGet: () => ipcRenderer.invoke(IPC.communityGet),
+  appGetInfo: () => ipcRenderer.invoke(IPC.appGetInfo),
   appOpenExternal: (url) => ipcRenderer.invoke(IPC.appOpenExternal, url),
   appOpenLogs: () => ipcRenderer.invoke(IPC.appOpenLogs),
   windowMinimize: () => {
@@ -40,6 +41,9 @@ const api: YufaApi = {
     void ipcRenderer.invoke(IPC.windowClose)
   },
   updaterInstall: () => ipcRenderer.invoke(IPC.updaterInstall),
+  updaterCheck: () => ipcRenderer.invoke(IPC.updaterCheck),
+  dxvkEnable: () => ipcRenderer.invoke(IPC.dxvkEnable),
+  dxvkDisable: () => ipcRenderer.invoke(IPC.dxvkDisable),
   onPatcherState: on<PatcherStateEvent>(IPC.patcherState),
   onPatcherProgress: on<PatcherProgressEvent>(IPC.patcherProgress),
   onUpdaterStatus: on<UpdaterStatusEvent>(IPC.updaterStatus),

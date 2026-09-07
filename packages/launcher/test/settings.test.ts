@@ -27,3 +27,74 @@ describe('SettingsStore', () => {
     expect(store.set({ downloadConcurrency: 1 }).downloadConcurrency).toBe(1)
   })
 })
+
+describe('SettingsStore: Compatibility fix fields (ADR 0003)', () => {
+  it('both default to false on first run', () => {
+    const s = new SettingsStore(userData).get()
+    expect(s.amdCompatibilityEnabled).toBe(false)
+    expect(s.amdCompatibilityPrompted).toBe(false)
+  })
+
+  it('a config.json written before the fields existed reads as defaults', async () => {
+    await writeFile(join(userData, 'config.json'), JSON.stringify({ gamePath: 'C:\\tos', language: 'en' }))
+    const s = new SettingsStore(userData).get()
+    expect(s.amdCompatibilityEnabled).toBe(false)
+    expect(s.amdCompatibilityPrompted).toBe(false)
+  })
+
+  it('only a real true counts; corrupt values fall back to false', async () => {
+    await writeFile(
+      join(userData, 'config.json'),
+      JSON.stringify({ amdCompatibilityEnabled: 'true', amdCompatibilityPrompted: 1 }),
+    )
+    const s = new SettingsStore(userData).get()
+    expect(s.amdCompatibilityEnabled).toBe(false)
+    expect(s.amdCompatibilityPrompted).toBe(false)
+  })
+
+  it('round-trips true through set and a fresh load', async () => {
+    const store = new SettingsStore(userData)
+    expect(store.set({ amdCompatibilityEnabled: true, amdCompatibilityPrompted: true })).toMatchObject({
+      amdCompatibilityEnabled: true,
+      amdCompatibilityPrompted: true,
+    })
+    const again = new SettingsStore(userData).get()
+    expect(again.amdCompatibilityEnabled).toBe(true)
+    expect(again.amdCompatibilityPrompted).toBe(true)
+  })
+
+  it('set rejects a corrupt value without touching the other field', () => {
+    const store = new SettingsStore(userData)
+    store.set({ amdCompatibilityPrompted: true })
+    const s = store.set({ amdCompatibilityEnabled: 'yes' as never })
+    expect(s.amdCompatibilityEnabled).toBe(false)
+    expect(s.amdCompatibilityPrompted).toBe(true)
+  })
+})
+
+describe('SettingsStore: hardwareAcceleration', () => {
+  it('defaults to true on first run', () => {
+    expect(new SettingsStore(userData).get().hardwareAcceleration).toBe(true)
+  })
+
+  it('a config.json written before the field existed reads as true', async () => {
+    await writeFile(join(userData, 'config.json'), JSON.stringify({ gamePath: 'C:\\tos' }))
+    expect(new SettingsStore(userData).get().hardwareAcceleration).toBe(true)
+  })
+
+  it('only a real false switches it off; corrupt values fall back to true', async () => {
+    for (const corrupt of ['false', 0, null, 'off']) {
+      await writeFile(join(userData, 'config.json'), JSON.stringify({ hardwareAcceleration: corrupt }))
+      expect(new SettingsStore(userData).get().hardwareAcceleration, `stored ${JSON.stringify(corrupt)}`).toBe(true)
+    }
+    await writeFile(join(userData, 'config.json'), JSON.stringify({ hardwareAcceleration: false }))
+    expect(new SettingsStore(userData).get().hardwareAcceleration).toBe(false)
+  })
+
+  it('round-trips false through set and a fresh load', () => {
+    const store = new SettingsStore(userData)
+    expect(store.set({ hardwareAcceleration: false }).hardwareAcceleration).toBe(false)
+    expect(new SettingsStore(userData).get().hardwareAcceleration).toBe(false)
+    expect(store.set({ hardwareAcceleration: 'yes' as never }).hardwareAcceleration).toBe(true)
+  })
+})

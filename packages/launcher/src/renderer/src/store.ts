@@ -1,5 +1,8 @@
 import { create } from 'zustand'
 import type {
+  CommunityCounts,
+  DxvkResult,
+  GpuDetection,
   InstallPathCheck,
   NewsResult,
   PatcherProgressEvent,
@@ -17,8 +20,14 @@ interface LauncherStore {
   progress: PatcherProgressEvent | null
   updater: UpdaterStatusEvent
   settings: Settings | null
+  /** A saved setting (hardware acceleration) only takes effect after the launcher restarts. */
+  restartRequired: boolean
   news: NewsResult | null
+  /** Discord counts for the community card; null until fetched, and when the fetch failed (the card omits the numbers). */
+  community: CommunityCounts | null
   version: string
+  /** What main found in the GPU list; null until app info arrives. */
+  gpu: GpuDetection | null
   launching: boolean
   initialized: boolean
   /** Install panel: the folder in the field, and what the main process last said about it. */
@@ -31,8 +40,18 @@ interface LauncherStore {
   repair(): Promise<void>
   checkRuntimes(): Promise<void>
   cancel(): Promise<void>
+  /** Settings' Check now. The answer arrives as an `updater` status. */
+  checkForLauncherUpdate(): Promise<void>
+  /** Asks main for the Discord counts: init calls it once per start, App whenever the player returns Home; never on a timer. */
+  refreshCommunity(): Promise<void>
   play(): Promise<void>
   saveSettings(p: Partial<Settings>): Promise<void>
+  /**
+   * The Compatibility fix switch. Main places or removes the file and moves
+   * the flag; settings are re-read afterwards. The result comes back for the
+   * caller to show in place (a refusal under the switch, or in the prompt).
+   */
+  setCompatibilityFix(on: boolean): Promise<DxvkResult>
   selectGamePath(): Promise<{ path: string; valid: boolean } | null>
   setInstallPath(path: string): void
   browseInstallPath(): Promise<void>
@@ -47,8 +66,11 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   progress: null,
   updater: { status: 'none' },
   settings: null,
+  restartRequired: false,
   news: null,
+  community: null,
   version: '',
+  gpu: null,
   launching: false,
   initialized: false,
   installPath: '',
@@ -78,12 +100,13 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
     yufa.onPatcherProgress((e) => set({ progress: e }))
     yufa.onUpdaterStatus((e) => set({ updater: e }))
 
-    const [settings, version] = await Promise.all([yufa.settingsGet(), yufa.appGetVersion()])
-    set({ settings, version })
+    const [settings, info] = await Promise.all([yufa.settingsGet(), yufa.appGetInfo()])
+    set({ settings, version: info.version, gpu: info.gpu })
     await i18n.changeLanguage(settings.language)
 
     await get().check()
     void yufa.newsGet().then((news) => set({ news }))
+    void get().refreshCommunity()
   },
 
   async check() {
@@ -101,10 +124,17 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   repair: () => window.yufa.patcherRepair(),
   checkRuntimes: () => window.yufa.patcherCheckRuntimes(),
   cancel: () => window.yufa.patcherCancel(),
+  checkForLauncherUpdate: () => window.yufa.updaterCheck(),
+
+  async refreshCommunity() {
+    set({ community: await window.yufa.communityGet() })
+  },
 
   async play() {
     set({ launching: true })
     const result = await window.yufa.gameLaunch()
+    // the Compatibility fix was reconciled before the client started; its outcome shows where a ready's would
+    if (result.dxvk) set((s) => ({ patcher: { ...s.patcher, dxvk: result.dxvk } }))
     if (!result.ok) {
       set({ launching: false })
       if (result.error) set({ patcher: { state: 'error', error: result.error } })
@@ -112,10 +142,16 @@ export const useLauncher = create<LauncherStore>((set, get) => ({
   },
 
   async saveSettings(partial) {
-    const settings = await window.yufa.settingsSet(partial)
-    set({ settings })
+    const { settings, restartRequired } = await window.yufa.settingsSet(partial)
+    set({ settings, restartRequired })
     if (partial.language) await i18n.changeLanguage(settings.language)
     if (partial.gamePath !== undefined) await get().check()
+  },
+
+  async setCompatibilityFix(on) {
+    const result = on ? await window.yufa.dxvkEnable() : await window.yufa.dxvkDisable()
+    set({ settings: await window.yufa.settingsGet() })
+    return result
   },
 
   async selectGamePath() {

@@ -1,28 +1,46 @@
 import { dirname, join, resolve } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron'
 import log from 'electron-log/main'
+import electronUpdater from 'electron-updater'
 import {
   IPC,
+  type AppInfo,
+  type DxvkResult,
   type ErrorInfo,
+  type GpuDetection,
   type LaunchResult,
   type PatcherProgressEvent,
   type PatcherStateEvent,
   type RedistStatus,
   type Settings,
+  type SettingsSetResult,
 } from '@yufa/shared'
-import { DEFAULT_INSTALL_DIR, FALLBACK_NEWS_URL, LAUNCHER_FEED_URL, MANIFEST_URL, REDIST_INDEX_URL } from './constants'
+import { bootSettings } from './boot'
+import { bundledDxvkPath } from './bundledDxvk'
+import { fetchDiscordCounts } from './community'
+import {
+  DEFAULT_INSTALL_DIR,
+  DISCORD_INVITE_CODE,
+  FALLBACK_NEWS_URL,
+  LAUNCHER_FEED_URL,
+  MANIFEST_URL,
+  REDIST_INDEX_URL,
+} from './constants'
+import { Dxvk } from './dxvk'
 import { isGameRunning, launchGame } from './game'
+import { describeGpu, detectAmdGpu, noGpu } from './gpu'
 import { validateInstallPath } from './installPath'
 import { cleanupStaleParts, gamePaths, isValidGameDir, probeGameDirWritable } from './localState'
 import { fetchNews } from './news'
 import { Patcher } from './patcher'
 import { ensureRedistributables, probeWindowsRuntimes, runInstallersElevated } from './redist'
-import { initSelfUpdate, type SelfUpdater } from './selfUpdate'
-import { SettingsStore } from './settings'
+import { createSelfUpdater, type SelfUpdater, type UpdaterEngine } from './selfUpdate'
 import { createMainWindow } from './window'
 
-// test/e2e hook: isolate settings & logs per run
-if (process.env['YUFA_USERDATA']) app.setPath('userData', process.env['YUFA_USERDATA'])
+// Before ready, synchronously (see bootSettings): the YUFA_USERDATA test hook, the settings store,
+// hardware acceleration off when the player switched it off. Nothing here may await.
+const boot = bootSettings(app, process.env)
+const settings = boot.settings
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -35,10 +53,15 @@ async function bootstrap(): Promise<void> {
   await app.whenReady()
 
   log.initialize()
-  log.info(`launcher ${app.getVersion()} starting (manifest: ${MANIFEST_URL})`)
+  log.info(
+    `launcher ${app.getVersion()} starting (manifest: ${MANIFEST_URL}, hardware acceleration ${boot.hardwareAcceleration ? 'on' : 'off'})`,
+  )
+
+  // Kicked off now so the answer is usually in hand when the renderer asks for app info.
+  // test/e2e hook: YUFA_GPU=amd lists an AMD adapter so the prompt and the switch can be photographed on any machine
+  const gpuDetection = process.env['YUFA_GPU'] === 'amd' ? Promise.resolve(pretendAmdGpu()) : probeGpu()
 
   // Without a known game folder the install panel targets the publisher default.
-  const settings = new SettingsStore(app.getPath('userData'))
   if (!settings.get().gamePath) {
     settings.set({ gamePath: (await detectGamePath()) || DEFAULT_INSTALL_DIR })
   }
@@ -51,7 +74,28 @@ async function bootstrap(): Promise<void> {
   const electronFetch = ((input: string | URL | Request, init?: RequestInit) =>
     net.fetch(input as string, init)) as typeof fetch
 
+  // The Compatibility fix (ADR 0003). Reads the game folder and the switch
+  // on every operation, so it outlives the patcher rebuilt on a folder change.
+  const dxvk = new Dxvk({
+    gameDir: () => settings.get().gamePath,
+    bundledDll: bundledDxvkPath(app),
+    flag: {
+      get: () => settings.get().amdCompatibilityEnabled,
+      set: (on) => void settings.set({ amdCompatibilityEnabled: on }),
+    },
+    isGameRunning,
+    isPatcherBusy: () => patcher.busy,
+  })
+
   let patcher = buildPatcher()
+  // test/e2e hook: YUFA_DXVK=enable|disable flips the Compatibility fix before the window opens, the way the
+  // switch would, so the smoke can assert release/ and photograph the switch in its new position
+  const dxvkHook = process.env['YUFA_DXVK']
+  if (dxvkHook === 'enable' || dxvkHook === 'disable') {
+    const result = dxvkHook === 'enable' ? await dxvk.enable() : await dxvk.disable()
+    log.info(`dxvk ${dxvkHook} (YUFA_DXVK):${describeDxvk(result)}`)
+  }
+
   function buildPatcher(): Patcher {
     const gameDir = settings.get().gamePath
     return new Patcher({
@@ -61,6 +105,7 @@ async function bootstrap(): Promise<void> {
       fetchImpl: electronFetch,
       downloadConcurrency: () => settings.get().downloadConcurrency,
       isGameRunning,
+      reconcileDxvk: () => dxvk.reconcile(),
       ensureRuntimes: (hooks) =>
         ensureRedistributables({
           probe: probeWindowsRuntimes,
@@ -71,7 +116,9 @@ async function bootstrap(): Promise<void> {
           ...hooks,
         }),
       onState: (e: PatcherStateEvent) => {
-        log.info(`patcher: ${e.state}${describeError(e.error)}${e.redist ? describeRedist(e.redist) : ''}`)
+        log.info(
+          `patcher: ${e.state}${describeError(e.error)}${e.redist ? describeRedist(e.redist) : ''}${e.dxvk ? describeDxvk(e.dxvk) : ''}`,
+        )
         send(IPC.patcherState, e)
         // e2e hook: YUFA_AUTO=update installs/downloads on its own; =play also launches
         const auto = process.env['YUFA_AUTO']
@@ -85,10 +132,14 @@ async function bootstrap(): Promise<void> {
     })
   }
 
-  const updater: SelfUpdater = initSelfUpdate(LAUNCHER_FEED_URL, (e) => {
-    log.info(`self-update: ${e.status}${e.version ? ` ${e.version}` : ''}`)
-    send(IPC.updaterStatus, e)
-  })
+  const updater: SelfUpdater = createSelfUpdater(
+    autoUpdaterEngine(LAUNCHER_FEED_URL),
+    (e) => {
+      log.info(`self-update: ${e.status}${e.version ? ` ${e.version}` : ''}${e.percent !== undefined ? ` ${e.percent}%` : ''}`)
+      send(IPC.updaterStatus, e)
+    },
+    log,
+  )
 
   // ---- IPC ----
   // A folder that is not a valid game folder is reported by the patcher as
@@ -132,6 +183,11 @@ async function bootstrap(): Promise<void> {
     }
     if (await isGameRunning()) return { ok: false, error: { code: 'game-running' } }
 
+    // The fix follows the switch right before the client loads d3d9.dll; a
+    // failure here is a warning on the result, never a reason not to launch.
+    const fix = await dxvk.reconcile()
+    if (fix) log.info(`game launch:${describeDxvk(fix)}`)
+
     // test/e2e hook: launch a real client while patching runs against a sandbox game dir
     const paths = gamePaths(s.gamePath)
     const launchExe = process.env['YUFA_LAUNCH_EXE']
@@ -145,17 +201,28 @@ async function bootstrap(): Promise<void> {
       if (s.afterLaunch === 'quit') setTimeout(() => app.quit(), 1500)
       else if (s.afterLaunch === 'minimize') win?.minimize()
     }
-    return result
+    return fix ? { ...result, dxvk: fix } : result
   }
 
   ipcMain.handle(IPC.gameLaunch, () => doLaunch())
 
+  ipcMain.handle(IPC.dxvkEnable, async (): Promise<DxvkResult> => {
+    const result = await dxvk.enable()
+    log.info(`dxvk enable:${describeDxvk(result)}`)
+    return result
+  })
+  ipcMain.handle(IPC.dxvkDisable, async (): Promise<DxvkResult> => {
+    const result = await dxvk.disable()
+    log.info(`dxvk disable:${describeDxvk(result)}`)
+    return result
+  })
+
   ipcMain.handle(IPC.settingsGet, (): Settings => settings.get())
-  ipcMain.handle(IPC.settingsSet, (_e, partial: Partial<Settings>): Settings => {
+  ipcMain.handle(IPC.settingsSet, (_e, partial: Partial<Settings>): SettingsSetResult => {
     const before = settings.get().gamePath
     const after = settings.set(partial)
     if (after.gamePath !== before) patcher = buildPatcher()
-    return after
+    return { settings: after, restartRequired: boot.restartRequired() }
   })
   ipcMain.handle(IPC.settingsSelectGamePath, async (_e, title: string) => {
     const result = await dialog.showOpenDialog({
@@ -215,7 +282,9 @@ async function bootstrap(): Promise<void> {
     return fetchNews(newsUrl, join(app.getPath('userData'), 'news-cache.json'), electronFetch)
   })
 
-  ipcMain.handle(IPC.appGetVersion, () => app.getVersion())
+  ipcMain.handle(IPC.communityGet, () => fetchDiscordCounts(DISCORD_INVITE_CODE, electronFetch))
+
+  ipcMain.handle(IPC.appGetInfo, async (): Promise<AppInfo> => ({ version: app.getVersion(), gpu: await gpuDetection }))
   ipcMain.handle(IPC.appOpenExternal, (_e, url: string) => {
     if (/^https?:/i.test(url)) void shell.openExternal(url)
   })
@@ -225,6 +294,7 @@ async function bootstrap(): Promise<void> {
   ipcMain.handle(IPC.windowMinimize, () => win?.minimize())
   ipcMain.handle(IPC.windowClose, () => win?.close())
   ipcMain.handle(IPC.updaterInstall, () => updater.install())
+  ipcMain.handle(IPC.updaterCheck, () => updater.check())
 
   // ---- window & lifecycle ----
   win = createMainWindow()
@@ -264,6 +334,10 @@ function describeRedist(r: RedistStatus): string {
   return ` [runtimes ${r.status}${r.missing.length ? ` ${r.missing.join('+')}` : ''}${describeError(r.error)}]`
 }
 
+function describeDxvk(d: DxvkResult): string {
+  return ` [dxvk ${d.outcome}, switch ${d.enabled ? 'on' : 'off'}${describeError(d.error)}]`
+}
+
 async function detectGamePath(): Promise<string> {
   // test/e2e hook: the sandbox folder is the game folder even while still empty
   if (process.env['YUFA_GAME_DIR']) return process.env['YUFA_GAME_DIR']
@@ -274,4 +348,55 @@ async function detectGamePath(): Promise<string> {
     if (await isValidGameDir(c)) return c
   }
   return ''
+}
+
+/** What YUFA_GPU=amd reports: one AMD adapter, named so a screenshot says where it came from. */
+function pretendAmdGpu(): GpuDetection {
+  return {
+    amdDetected: true,
+    adapters: [{ vendorId: '0x1002', deviceId: null, active: true, amd: true, name: 'AMD Radeon (YUFA_GPU=amd)' }],
+  }
+}
+
+/** How long the GPU probe may hold up app info before the launcher assumes no AMD adapter. */
+const GPU_INFO_TIMEOUT_MS = 5000
+
+/**
+ * The Compatibility fix's detection (ADR 0003): Chromium's own GPU list, no
+ * WMI, no elevation. A probe that fails or stalls yields no AMD and a log
+ * line; the switch in Settings still works by hand.
+ */
+async function probeGpu(): Promise<GpuDetection> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const info = await Promise.race([
+      app.getGPUInfo('basic'),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`no answer in ${GPU_INFO_TIMEOUT_MS} ms`)), GPU_INFO_TIMEOUT_MS)
+      }),
+    ])
+    const result = detectAmdGpu(info)
+    log.info(`gpu: ${describeGpu(result)}`)
+    return result
+  } catch (err) {
+    log.warn(`gpu: probe failed (${err instanceof Error ? err.message : String(err)}); assuming no AMD adapter`)
+    return noGpu()
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * electron-updater configured for the launcher feed: auto-download, install
+ * on quit. Null in dev or while the feed URL is the placeholder, which turns
+ * self-update off.
+ */
+function autoUpdaterEngine(feedUrl: string): UpdaterEngine | null {
+  if (!app.isPackaged || feedUrl.includes('REPLACE_WITH_DOMAIN')) return null
+  const { autoUpdater } = electronUpdater
+  autoUpdater.logger = log
+  autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl })
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  return autoUpdater
 }

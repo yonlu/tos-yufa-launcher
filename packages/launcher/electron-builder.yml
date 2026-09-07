@@ -10,6 +10,16 @@ directories:
 files:
   - out/**
   - package.json
+# The Compatibility fix (ADR 0003): tools/fetch-dxvk.ts stages d3d9.dll and
+# LICENSE into build/dxvk/ (gitignored); they ship under resources/dxvk/.
+# build/check-dxvk.cjs fails the build clearly when the folder is not staged.
+extraResources:
+  - from: build/dxvk
+    to: dxvk
+    filter:
+      - d3d9.dll
+      - LICENSE
+beforePack: build/check-dxvk.cjs
 asar: true
 win:
   target: nsis

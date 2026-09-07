@@ -1,10 +1,11 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, promises as fs } from 'node:fs'
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  DXVK_FILE,
   HASH_ON_CHECK_MAX_BYTES,
   INSTALL_RECORD_FILE,
   installRecordSchema,
@@ -26,6 +27,7 @@ import {
 import type { PublishConfig } from '../../publish-cli/src/config'
 import { LocalDirStore } from '../../publish-cli/src/store'
 import { createDevServer, type DevServer } from '../../../tools/dev-server'
+import { Dxvk, type DxvkDeps } from '../src/main/dxvk'
 import { gamePaths, readLocalRevision } from '../src/main/localState'
 import { Patcher, type PatcherDeps } from '../src/main/patcher'
 import { ensureRedistributables, RedistError, type RedistInstaller, type RedistRunner } from '../src/main/redist'
@@ -898,5 +900,139 @@ describe('Redistributables after a fresh install', () => {
     expect((await p.install()).state).toBe('ready')
     expect(during!.state).toBe('installing')
     expect(rt.probes()).toBe(1) // the one after the install, not the one requested mid-download
+  })
+})
+
+describe('The Compatibility fix across patcher runs', () => {
+  const BUNDLED = randomBytes(4096)
+  const DLL = `release/${DXVK_FILE}`
+  const hash = (b: Buffer) => createHash('sha256').update(b).digest('hex')
+
+  /** dxvk.ts wired the way index.ts wires it: a fake bundled file staged outside the game folder, the switch as a knob. */
+  async function fix(over: Partial<DxvkDeps> = {}) {
+    const bundledDll = join(staging, 'dxvk', DXVK_FILE)
+    await put(staging, `dxvk/${DXVK_FILE}`, BUNDLED)
+    let flag = false
+    let running = false
+    const dxvk = new Dxvk({
+      gameDir: () => gameDir,
+      bundledDll,
+      flag: {
+        get: () => flag,
+        set: (on) => {
+          flag = on
+        },
+      },
+      isGameRunning: async () => running,
+      pins: { current: hash(BUNDLED), previous: [] },
+      ...over,
+    })
+    const deps: Partial<PatcherDeps> = { reconcileDxvk: () => dxvk.reconcile(), isGameRunning: async () => running }
+    return {
+      dxvk,
+      deps,
+      flag: () => flag,
+      setRunning: (on: boolean) => {
+        running = on
+      },
+    }
+  }
+
+  async function publishNextPatch() {
+    const next = join(staging, patchFileName(REV_B + 1))
+    await writeFile(next, randomBytes(3 * 1024))
+    await cliPatch(cliCtx, { files: [next] })
+  }
+
+  it('enabled, it survives check, update, repair and rollback untouched and never enters the Install Record', async () => {
+    await publishTree()
+    await installFresh()
+    const f = await fix()
+    expect((await f.dxvk.enable()).outcome).toBe('installed')
+    const placed = await fs.stat(local(DLL))
+    await new Promise((r) => setTimeout(r, 20))
+
+    const checked = await makePatcher(f.deps).check()
+    expect(checked.state).toBe('up-to-date')
+    expect(checked.dxvk).toEqual({ outcome: 'present', enabled: true })
+
+    await publishNextPatch()
+    const p = makePatcher(f.deps)
+    expect((await p.check()).state).toBe('update-available')
+    const updated = await p.update()
+    expect(updated.state).toBe('ready')
+    expect(updated.dxvk).toEqual({ outcome: 'present', enabled: true })
+
+    const repaired = await makePatcher(f.deps).repair()
+    expect(repaired.state).toBe('up-to-date')
+    expect(repaired.dxvk).toEqual({ outcome: 'present', enabled: true })
+
+    await cliRollback(cliCtx, 1)
+    const p2 = makePatcher(f.deps)
+    expect((await p2.check()).state).toBe('update-available')
+    const rolledBack = await p2.update()
+    expect(rolledBack.state).toBe('ready')
+    expect(rolledBack.dxvk).toEqual({ outcome: 'present', enabled: true })
+
+    const after = await fs.stat(local(DLL))
+    expect(after.mtimeMs).toBe(placed.mtimeMs)
+    expect((await readFile(local(DLL))).equals(BUNDLED)).toBe(true)
+    expect((await readRecord()).files.some((x) => x.path === DLL)).toBe(false)
+    expect(f.flag()).toBe(true)
+  })
+
+  it('reconcile after an update re-creates a deleted file', async () => {
+    await publishTree()
+    await installFresh()
+    const f = await fix()
+    await f.dxvk.enable()
+    await fs.rm(local(DLL))
+
+    await publishNextPatch()
+    const p = makePatcher(f.deps)
+    const checked = await p.check()
+    expect(checked.state).toBe('update-available')
+    expect(checked.dxvk).toBeUndefined()
+    const done = await p.update()
+    expect(done.state).toBe('ready')
+    expect(done.dxvk).toEqual({ outcome: 'installed', enabled: true })
+    expect((await readFile(local(DLL))).equals(BUNDLED)).toBe(true)
+  })
+
+  it('switch off: nothing is placed and nothing is reported', async () => {
+    await publishTree()
+    await installFresh()
+    const f = await fix()
+    const checked = await makePatcher(f.deps).check()
+    expect(checked.state).toBe('up-to-date')
+    expect(checked.dxvk).toBeUndefined()
+    expect(existsSync(local(DLL))).toBe(false)
+  })
+
+  it('a check while the game runs reports the refusal as a warning on up-to-date, not an error', async () => {
+    await publishTree()
+    await installFresh()
+    const f = await fix()
+    await f.dxvk.enable()
+    f.setRunning(true)
+    const checked = await makePatcher(f.deps).check()
+    expect(checked.state).toBe('up-to-date')
+    expect(checked.dxvk).toEqual({ outcome: 'failed', enabled: true, error: { code: 'game-running' } })
+  })
+
+  it('busy is true while a run is in progress and false once it settles', async () => {
+    await publishTree()
+    let p: Patcher
+    let during: boolean | null = null
+    const fetchImpl: typeof fetch = (input, init) => {
+      if (String(input).includes('/objects/') && during === null) during = p.busy
+      return fetch(input, init)
+    }
+    p = makePatcher({ fetchImpl })
+    expect(p.busy).toBe(false)
+    await p.check()
+    expect((await p.install()).state).toBe('ready')
+    expect(during).toBe(true)
+    expect(p.busy).toBe(false)
   })
 })

@@ -1,4 +1,6 @@
 import type {
+  DxvkResult,
+  GpuDetection,
   InstallPathCheck,
   InstallPathProblem,
   PatcherProgressEvent,
@@ -13,7 +15,16 @@ import type {
  * Browser/dev harness: installed only when the preload bridge is absent.
  * Drive states via the URL, e.g. ?mock=updating, ?mock=error&code=offline,
  * ?mock=not-installed[&partial][&nospace], ?mock=resume, ?mock=runtimes, &redist=failed|declined
- * (warning on a ready launcher) — lets every UI state be exercised without Electron or a patch server.
+ * (warning on a ready launcher), &amd=1 (an AMD adapter in the GPU list; the prompt shows on ready unless
+ * &prompted), &dxvk=on (the Compatibility fix switched on), &dxvk=foreign (a d3d9.dll the launcher does not
+ * recognise makes enable refuse) or &dxvk=blocked (the switch on and that file in the way, so reconciling at ready
+ * reports the refusal), &hwaccel=off (hardware acceleration switched off at "boot", so switching it back on asks
+ * for a restart), &view=settings or &view=settings:launcher (Settings open on start, at that section),
+ * &updater=checking|none|available|downloading|ready|error
+ * (the launcher update status a second after start; Check now in Settings always runs checking then none),
+ * &discord=off (the Discord counts fail, so the community card shows no numbers), &news=empty (a feed with
+ * nothing in it), &view=news (the News view open on start).
+ * Every UI state can be exercised without Electron or a patch server.
  */
 export function installMockIfNeeded(): void {
   if (window.yufa) return
@@ -25,8 +36,13 @@ export function installMockIfNeeded(): void {
   const stateListeners = new Set<(e: PatcherStateEvent) => void>()
   const progressListeners = new Set<(e: PatcherProgressEvent) => void>()
   const updaterListeners = new Set<(e: UpdaterStatusEvent) => void>()
+  const emitUpdater = (e: UpdaterStatusEvent): void => updaterListeners.forEach((cb) => cb(e))
 
   const DEFAULT_INSTALL_DIR = 'C:\\Hyped Games\\ToS Classic'
+  /** ?dxvk=on|foreign|blocked: the Compatibility fix switch on, someone else's d3d9.dll in the way, or both. */
+  const dxvkMode = params.get('dxvk')
+  const dxvkSwitchOn = dxvkMode === 'on' || dxvkMode === 'blocked'
+  const dxvkForeignFile = dxvkMode === 'foreign' || dxvkMode === 'blocked'
   const settings: Settings = {
     gamePath: scenario === 'not-installed' ? DEFAULT_INSTALL_DIR : 'C:\\tos-servers\\Classic',
     language: (params.get('lang') as 'pt-BR' | 'en') ?? 'pt-BR',
@@ -34,7 +50,55 @@ export function installMockIfNeeded(): void {
     afterLaunch: 'quit',
     downloadConcurrency: 2,
     allowOfflinePlay: true,
+    hardwareAcceleration: params.get('hwaccel') !== 'off',
+    amdCompatibilityEnabled: dxvkSwitchOn,
+    amdCompatibilityPrompted: params.has('prompted'),
   }
+
+  /** What this "process" started with: the real main compares every save against it. */
+  const bootHardwareAcceleration = settings.hardwareAcceleration
+
+  /** ?amd=1 puts a Radeon next to the integrated adapter, the hybrid-laptop case the prompt exists for. */
+  const gpu: GpuDetection = params.has('amd')
+    ? {
+        amdDetected: true,
+        adapters: [
+          { vendorId: '0x8086', deviceId: '0x9a49', active: true, amd: false, name: 'Intel(R) Iris(R) Xe Graphics' },
+          { vendorId: '0x1002', deviceId: '0x73df', active: false, amd: true, name: 'AMD Radeon RX 6700 XT' },
+        ],
+      }
+    : {
+        amdDetected: false,
+        adapters: [{ vendorId: '0x10de', deviceId: '0x2484', active: true, amd: false, name: 'NVIDIA GeForce RTX 3070' }],
+      }
+
+  /** The Compatibility fix on a fake release/: the switch is the only state, the foreign file refuses every operation. */
+  const foreignDll = (): DxvkResult | null =>
+    dxvkForeignFile
+      ? {
+          outcome: 'foreign',
+          enabled: settings.amdCompatibilityEnabled,
+          error: { code: 'foreign-dll', message: `${settings.gamePath}\\release\\d3d9.dll` },
+        }
+      : null
+  const dxvkEnable = async (): Promise<DxvkResult> => {
+    const foreign = foreignDll()
+    if (foreign) return foreign
+    const outcome = settings.amdCompatibilityEnabled ? 'present' : 'installed'
+    settings.amdCompatibilityEnabled = true
+    return { outcome, enabled: true }
+  }
+  const dxvkDisable = async (): Promise<DxvkResult> => {
+    const was = settings.amdCompatibilityEnabled
+    settings.amdCompatibilityEnabled = false
+    return foreignDll() ?? { outcome: was ? 'removed' : 'absent', enabled: false }
+  }
+  /** What reconciling at ready reports: nothing with the switch off, else the same as an enable. */
+  const dxvkReconcile = (): Promise<DxvkResult | undefined> =>
+    settings.amdCompatibilityEnabled ? dxvkEnable() : Promise.resolve(undefined)
+  /** What the state a check lands on carries: with the switch on, the file is there or something else is in its way. */
+  const dxvkAtReady = (): DxvkResult | undefined =>
+    settings.amdCompatibilityEnabled ? (foreignDll() ?? { outcome: 'present', enabled: true }) : undefined
 
   const plan = { fileCount: 3, deleteCount: 0, totalBytes: 157_286_400, targetRevision: 234932, localRevision: 234929 }
   const BUILD_BYTES = 13_400_000_000
@@ -136,7 +200,7 @@ export function installMockIfNeeded(): void {
   const checkResult = (): PatcherStateEvent => {
     switch (scenario) {
       case 'up-to-date':
-        return { state: 'up-to-date', plan: { ...plan, fileCount: 0, totalBytes: 0 }, redist: redistOutcome() }
+        return { state: 'up-to-date', plan: { ...plan, fileCount: 0, totalBytes: 0 }, redist: redistOutcome(), dxvk: dxvkAtReady() }
       case 'runtimes':
         return { state: 'installing-runtimes', redist: { status: 'installing', missing: ['vcredist', 'directx'] } }
       case 'not-installed':
@@ -171,10 +235,14 @@ export function installMockIfNeeded(): void {
     patcherCheckRuntimes: async () => simulateRuntimes(checkResult()),
     gameLaunch: async () => {
       console.log('[mock] launch game')
-      return { ok: true }
+      const dxvk = await dxvkReconcile()
+      return dxvk ? { ok: true, dxvk } : { ok: true }
     },
     settingsGet: async () => settings,
-    settingsSet: async (p) => Object.assign(settings, p),
+    settingsSet: async (p) => ({
+      settings: Object.assign(settings, p),
+      restartRequired: settings.hardwareAcceleration !== bootHardwareAcceleration,
+    }),
     settingsSelectGamePath: async () => ({ path: 'C:\\mock\\path', valid: params.get('badpath') === null }),
     installDefaultPath: async () => DEFAULT_INSTALL_DIR,
     installValidatePath: async (path) => {
@@ -192,7 +260,7 @@ export function installMockIfNeeded(): void {
     },
     newsGet: async () => ({
       stale: params.has('stalenews'),
-      items: [
+      items: params.get('news') === 'empty' ? [] : [
         {
           id: '1',
           date: '2026-07-01',
@@ -211,14 +279,32 @@ export function installMockIfNeeded(): void {
           title: { 'pt-BR': 'Evento de EXP em dobro', en: 'Double EXP event' },
           body: { 'pt-BR': 'Até 07/07, EXP em dobro em todos os mapas!', en: 'Until Jul 7, double EXP on all maps!' },
         },
+        {
+          id: '3',
+          date: '2026-06-20',
+          pinned: false,
+          title: { 'pt-BR': 'Manutenção concluída', en: 'Maintenance complete' },
+          body: {
+            'pt-BR': 'O servidor voltou com a correção do lag em Fedimian e o balanceamento de classes da semana.',
+            en: 'The server is back with the Fedimian lag fix and this week\'s class balance changes.',
+          },
+          url: 'https://example.com/maintenance',
+        },
       ],
     }),
-    appGetVersion: async () => '1.0.0-mock',
+    communityGet: async () => (params.get('discord') === 'off' ? null : { online: 87, members: 2431 }),
+    appGetInfo: async () => ({ version: '1.0.0-mock', gpu }),
     appOpenExternal: async (url) => void window.open(url, '_blank'),
     appOpenLogs: async () => console.log('[mock] open logs'),
     windowMinimize: () => console.log('[mock] minimize'),
     windowClose: () => console.log('[mock] close'),
     updaterInstall: async () => console.log('[mock] quitAndInstall'),
+    updaterCheck: async () => {
+      emitUpdater({ status: 'checking' })
+      setTimeout(() => emitUpdater({ status: 'none' }), 1200)
+    },
+    dxvkEnable,
+    dxvkDisable,
     onPatcherState: (cb) => {
       stateListeners.add(cb)
       return () => stateListeners.delete(cb)

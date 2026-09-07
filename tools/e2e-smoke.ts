@@ -3,15 +3,21 @@ import { existsSync, promises as fs } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { rollback } from '../packages/publish-cli/src/commands'
 import { sha256File } from '../packages/publish-cli/src/hash'
-import { INSTALL_RECORD_FILE, installRecordSchema, manifestSchema, type Manifest } from '../packages/shared/src/index'
+import { DXVK_FILE, manifestSchema, type Manifest } from '../packages/shared/src/index'
 import { argOption } from './cli'
 import { createDevServer } from './dev-server'
+import { expectCompatibilityFix, expectReleaseMatchesRecord, readInstallRecord } from './e2e-checks'
 import { buildSandbox, bumpSandbox, sandboxCtx, sandboxPaths } from './e2e-setup'
 
 /**
  * Rehearses the whole pipeline against the PACKAGED launcher: install into an
- * empty folder, update to a bumped Build, roll back — each run captured by
- * the screenshot smoke hook and judged by what lands in the game folder.
+ * empty folder, switch the Compatibility fix on, update to a bumped Build,
+ * roll back, switch the fix off, then a foreign d3d9.dll in the way — each
+ * run captured by the screenshot smoke hook and judged by what lands in the
+ * game folder. The runs with an AMD adapter pretended (YUFA_GPU=amd)
+ * photograph the one-time prompt and the Settings switch, and the Settings
+ * runs cover both sections, in both languages between them. The last run
+ * photographs the News view.
  * Each `--*-delay` is the wait before that screenshot, in ms.
  *
  *   npm run dist                       # once: the packaged launcher under release-builds/win-unpacked
@@ -95,13 +101,27 @@ async function runLauncher(name: string, env: Record<string, string>, delayMs: n
   return shot
 }
 
+/** The launcher reads userdata/config.json at start: set the language or the prompt flag for the next run. */
+async function seedSettings(partial: Record<string, unknown>): Promise<void> {
+  const file = join(userData, 'config.json')
+  const current = existsSync(file) ? (JSON.parse(await fs.readFile(file, 'utf8')) as Record<string, unknown>) : {}
+  await fs.mkdir(userData, { recursive: true })
+  await fs.writeFile(file, JSON.stringify({ ...current, ...partial }, null, 2))
+}
+
+/** The Compatibility fix switch as the launcher left it in userdata/config.json. */
+async function fixSwitchInConfig(): Promise<boolean> {
+  const config = JSON.parse(await fs.readFile(join(userData, 'config.json'), 'utf8')) as { amdCompatibilityEnabled?: boolean }
+  return config.amdCompatibilityEnabled === true
+}
+
 async function currentManifest(): Promise<Manifest> {
   return manifestSchema.parse(JSON.parse(await fs.readFile(join(paths.storeDir, 'manifest.json'), 'utf8')))
 }
 
 /** The game folder must hold exactly the current Build: record complete, every file present with the right hash, revision file right. */
 async function expectInstalled(manifest: Manifest): Promise<void> {
-  const record = installRecordSchema.parse(JSON.parse(await fs.readFile(join(paths.gameDir, INSTALL_RECORD_FILE), 'utf8')))
+  const record = await readInstallRecord(paths.gameDir)
   if (!record.completed) throw new Error('Install Record is not completed')
   if (record.build !== manifest.build) throw new Error(`Install Record says build ${record.build}, manifest is ${manifest.build}`)
   for (const f of manifest.files) {
@@ -134,23 +154,41 @@ try {
     return shot
   })
 
-  await step('install Build 1', async () => {
-    const shot = await runLauncher('2-installed-ready', { YUFA_AUTO: 'update' }, installShotMs)
+  // an AMD adapter is pretended from here on: the first ready shows the one-time prompt (pt-BR)
+  await step('install Build 1 (AMD prompt on first ready)', async () => {
+    const shot = await runLauncher('2-installed-prompt-pt', { YUFA_AUTO: 'update', YUFA_GPU: 'amd' }, installShotMs)
+    await expectInstalled(await currentManifest())
+    await expectCompatibilityFix(paths.gameDir, 'absent')
+    return shot
+  })
+
+  await step('enable the Compatibility fix', async () => {
+    await seedSettings({ language: 'pt-BR', amdCompatibilityPrompted: true })
+    const env = { YUFA_GPU: 'amd', YUFA_DXVK: 'enable', YUFA_VIEW: 'settings' }
+    const shot = await runLauncher('3-fix-enabled-settings-pt', env, panelShotMs)
+    if (!(await fixSwitchInConfig())) throw new Error('the switch is not on in config.json')
+    await expectCompatibilityFix(paths.gameDir, 'present')
     await expectInstalled(await currentManifest())
     return shot
   })
 
   const build1 = await currentManifest()
   const bump = await bumpSandbox({ base, url, log: () => {} })
-  await step(`update to Build ${bump.build} (${bump.changed} changed, ${bump.added} added)`, async () => {
-    const shot = await runLauncher('3-updated-ready', { YUFA_AUTO: 'update' }, installShotMs)
+  await step(`update to Build ${bump.build} (${bump.changed} changed, ${bump.added} added); the fix survives`, async () => {
+    await seedSettings({ language: 'en' })
+    const env = { YUFA_AUTO: 'update', YUFA_GPU: 'amd', YUFA_VIEW: 'settings' }
+    const shot = await runLauncher('4-updated-settings-en', env, installShotMs)
     await expectInstalled(await currentManifest())
+    await expectCompatibilityFix(paths.gameDir, 'present')
+    const record = await readInstallRecord(paths.gameDir)
+    if (record.files.some((f) => f.path === 'release/d3d9.dll')) throw new Error('release/d3d9.dll entered the Install Record')
     return shot
   })
 
-  await step('roll back to Build 1', async () => {
+  await step('roll back to Build 1; the fix survives', async () => {
+    await seedSettings({ language: 'pt-BR' })
     await rollback(sandboxCtx({ base, url, log: () => {} }), build1.build)
-    const shot = await runLauncher('4-rolled-back-ready', { YUFA_AUTO: 'update' }, installShotMs)
+    const shot = await runLauncher('5-rolled-back-ready', { YUFA_AUTO: 'update' }, installShotMs)
     const manifest = await currentManifest()
     await expectInstalled(manifest)
     if (manifest.build !== build1.build) throw new Error(`rollback left build ${manifest.build} current`)
@@ -159,7 +197,70 @@ try {
     if (restored !== build1.files.find((f) => f.path === bump.changed)?.sha256) {
       throw new Error(`${bump.changed} is not back to its Build 1 content`)
     }
+    await expectCompatibilityFix(paths.gameDir, 'present')
     return shot
+  })
+
+  // switched off before the window opens; with the prompt flag cleared, ready shows the prompt again (en)
+  await step('disable the Compatibility fix; release/ matches the Install Record', async () => {
+    await seedSettings({ language: 'en', amdCompatibilityPrompted: false })
+    const shot = await runLauncher('6-fix-disabled-prompt-en', { YUFA_GPU: 'amd', YUFA_DXVK: 'disable' }, panelShotMs)
+    if (await fixSwitchInConfig()) throw new Error('the switch is still on in config.json')
+    await expectCompatibilityFix(paths.gameDir, 'absent')
+    await expectReleaseMatchesRecord(paths.gameDir)
+    await expectInstalled(await currentManifest())
+    return shot
+  })
+
+  await step('the switch off in Settings (screenshot only)', async () => {
+    await seedSettings({ language: 'en', amdCompatibilityPrompted: true })
+    const shot = await runLauncher('7-fix-off-settings-en', { YUFA_GPU: 'amd', YUFA_VIEW: 'settings' }, panelShotMs)
+    await expectCompatibilityFix(paths.gameDir, 'absent')
+    return shot
+  })
+
+  await step('the Launcher section of Settings, pt-BR (screenshot only)', async () => {
+    await seedSettings({ language: 'pt-BR' })
+    const shot = await runLauncher('8-launcher-settings-pt', { YUFA_VIEW: 'settings:launcher' }, panelShotMs)
+    await expectCompatibilityFix(paths.gameDir, 'absent')
+    return shot
+  })
+
+  await step('the Launcher section of Settings, en (screenshot only)', async () => {
+    await seedSettings({ language: 'en' })
+    const shot = await runLauncher('9-launcher-settings-en', { YUFA_VIEW: 'settings:launcher' }, panelShotMs)
+    await expectCompatibilityFix(paths.gameDir, 'absent')
+    return shot
+  })
+
+  // someone else's d3d9.dll (ReShade, a DXVK copied by hand) with the switch on: reconciling at ready refuses,
+  // the switch's row in Settings says why, the switch stays on and the file stays byte for byte what it was
+  await step('a foreign d3d9.dll blocks the fix; Settings shows the refusal, the file is untouched', async () => {
+    const foreign = join(paths.gameDir, 'release', DXVK_FILE)
+    await fs.writeFile(foreign, 'not DXVK: a d3d9.dll the player put there')
+    const planted = await sha256File(foreign)
+    const env = { YUFA_GPU: 'amd', YUFA_VIEW: 'settings' }
+    await seedSettings({ language: 'pt-BR', amdCompatibilityEnabled: true })
+    const shotPt = await runLauncher('10-fix-blocked-settings-pt', env, panelShotMs)
+    await seedSettings({ language: 'en' })
+    const shotEn = await runLauncher('11-fix-blocked-settings-en', env, panelShotMs)
+    if (!existsSync(foreign)) throw new Error(`the foreign release/${DXVK_FILE} was removed`)
+    if ((await sha256File(foreign)) !== planted) throw new Error(`the foreign release/${DXVK_FILE} was overwritten`)
+    if (!(await fixSwitchInConfig())) throw new Error('reconciling flipped the switch off in config.json')
+    // leave the folder the way the disable step left it
+    await fs.rm(foreign)
+    await seedSettings({ amdCompatibilityEnabled: false })
+    await expectReleaseMatchesRecord(paths.gameDir)
+    return `${shotPt}, ${shotEn}`
+  })
+
+  await step('the News view, both languages (screenshot only)', async () => {
+    await seedSettings({ language: 'pt-BR' })
+    const shotPt = await runLauncher('12-news-view-pt', { YUFA_VIEW: 'news' }, panelShotMs)
+    await seedSettings({ language: 'en' })
+    const shotEn = await runLauncher('13-news-view-en', { YUFA_VIEW: 'news' }, panelShotMs)
+    await expectCompatibilityFix(paths.gameDir, 'absent')
+    return `${shotPt}, ${shotEn}`
   })
 } finally {
   await server.close()

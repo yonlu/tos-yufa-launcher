@@ -1,6 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import logoUrl from '../assets/logo.png'
 import { useLauncher } from '../store'
 
 const DRAG = { WebkitAppRegion: 'drag' } as unknown as CSSProperties
@@ -22,8 +21,8 @@ function IconButton({
       type="button"
       title={title}
       onClick={onClick}
-      className={`flex h-8 w-10 items-center justify-center rounded text-sm text-tos-brown-light transition-colors ${
-        danger ? 'hover:bg-tos-burgundy hover:text-white' : 'hover:bg-tos-tan hover:text-tos-burgundy'
+      className={`flex h-8 w-10 items-center justify-center rounded text-sm text-white/70 transition-colors ${
+        danger ? 'hover:bg-tos-burgundy hover:text-white' : 'hover:bg-white/15 hover:text-white'
       }`}
     >
       {children}
@@ -31,19 +30,21 @@ function IconButton({
   )
 }
 
+/**
+ * The frameless window's chrome, a translucent strip over the top of the
+ * hero: the drag region, the product name, the version chip, Settings,
+ * minimize and close. The logo lives in the nav just below.
+ */
 export function TitleBar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const version = useLauncher((s) => s.version)
   const { t } = useTranslation()
   return (
     <header
       style={DRAG}
-      className="flex h-10 shrink-0 items-center gap-3 border-b border-tos-border bg-tos-cream/85 pl-4 pr-1 shadow-sm backdrop-blur-md"
+      className="absolute inset-x-0 top-0 z-30 flex h-10 items-center gap-3 bg-gradient-to-b from-black/45 to-black/15 pl-4 pr-1"
     >
-      <img src={logoUrl} alt="" className="h-7 w-auto" />
-      <span className="font-display text-xs font-bold tracking-wide text-tos-brown-light">{t('app.subtitle')}</span>
-      {version && (
-        <span className="ml-2 rounded bg-tos-tan px-1.5 py-0.5 text-[10px] text-tos-brown-muted">v{version}</span>
-      )}
+      <span className="font-display text-xs font-bold tracking-wide text-white/80 drop-shadow">{t('app.subtitle')}</span>
+      {version && <span className="rounded bg-white/15 px-1.5 py-0.5 text-[10px] text-white/70">v{version}</span>}
       <div style={NO_DRAG} className="ml-auto flex items-center">
         <IconButton onClick={onOpenSettings} title={t('titlebar.settings')}>
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">

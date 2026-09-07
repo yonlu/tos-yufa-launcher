@@ -8,7 +8,8 @@ Launcher + sistema de publicação de patches para o servidor Yufa | ToS - Class
 - `packages/launcher` — app Electron (electron-vite + React). UI do jogador: verificar → baixar → jogar.
 - `packages/publish-cli` — CLI do admin (`npm run yufa-publish`): release / patch / rollback / news / verify (`--mirror <pasta>` compara hashes com a pasta local) / gc (`--keep N` apaga Blobs que nenhum dos N Builds mais recentes nem o atual referencia; nunca apaga Manifests) / redist push (`--dir <pasta>` sobe os instaladores de runtime e escreve `redist/index.json` por último) / launcher.
 - `tools/dev-server.ts` — servidor estático local com suporte a HTTP Range para testes E2E.
-- `tools/e2e-setup.ts` / `tools/e2e-smoke.ts` — sandbox E2E local: árvore de jogo falsa publicada como Build, e o ensaio automático (instalar → atualizar → rollback) com o launcher empacotado. Ver [Sandbox E2E local](#sandbox-e2e-local).
+- `tools/fetch-dxvk.ts` — baixa o archive oficial do DXVK, confere `x32/d3d9.dll` contra o hash fixado em `packages/shared/src/dxvk.ts` e o deixa em `packages/launcher/build/dxvk/` para o `dist`. Ver [Compatibility fix (DXVK)](#compatibility-fix-dxvk).
+- `tools/e2e-setup.ts` / `tools/e2e-smoke.ts` — sandbox E2E local: árvore de jogo falsa publicada como Build, e o ensaio automático (instalar → ligar a correção AMD → atualizar → rollback → desligar) com o launcher empacotado; `tools/e2e-checks.ts` guarda as conferências da pasta do jogo. Ver [Sandbox E2E local](#sandbox-e2e-local).
 
 ## Comandos
 
@@ -17,6 +18,7 @@ npm install                 # instala tudo (workspaces)
 npm test                    # unit + integration tests (vitest)
 npm run typecheck           # tsc em shared, publish-cli, launcher e tools
 npm run dev                 # launcher em modo dev
+npm run fetch-dxvk          # baixa o DXVK oficial, confere o hash e prepara packages/launcher/build/dxvk (antes do dist)
 npm run dist                # build NSIS (electron-builder) → packages/launcher/release-builds
 npm run yufa-publish -- …   # CLI de publicação
 npm run dev-server          # servidor de patches local
@@ -52,6 +54,9 @@ Aponte o launcher (dev ou empacotado) para o sandbox com variáveis de ambiente:
 | `YUFA_LAUNCH_EXE` | executável que Jogar abre (cliente real fora do sandbox) |
 | `YUFA_SCREENSHOT` (+ `_DELAY` ms) | captura a janela nesse caminho e sai — o smoke de screenshot |
 | `YUFA_REDIST_INDEX_URL`, `YUFA_LAUNCHER_FEED_URL` | índices alternativos de runtimes e de self-update |
+| `YUFA_GPU=amd` | finge uma placa AMD na lista de GPUs: o prompt da correção e a linha da placa nas Configurações aparecem em qualquer máquina |
+| `YUFA_DXVK=enable` / `disable` | liga ou desliga o Compatibility fix antes de abrir a janela, como a chave das Configurações faria |
+| `YUFA_VIEW=settings` / `settings:launcher` / `news` | abre as Configurações ao iniciar, na seção Jogo ou na Launcher, ou a tela de Notícias (o smoke fotografa as três) |
 
 Ciclo completo à mão:
 
@@ -65,12 +70,59 @@ Ou tudo de uma vez, com o launcher empacotado, cada etapa fotografada em `e2e-sa
 
 ```
 npm run dist
-npm run e2e        # painel de instalação → instala Build 1 → atualiza para Build 2 → rollback 1
+npm run e2e        # painel de instalação → instala Build 1 (prompt AMD) → liga a correção → atualiza para Build 2 → rollback 1 → desliga a correção → seção Launcher → d3d9.dll estranho bloqueia a correção → tela de Notícias
 ```
+
+Os passos 3 a 7 são o Compatibility fix: ligado, `release\d3d9.dll` tem o hash fixado e sobrevive à atualização e ao rollback sem entrar no Install Record; desligado, `release\` volta a ser byte a byte o que o Install Record lista (mais o `release.revision.txt`, que é do launcher). As fotos com `YUFA_GPU=amd` mostram o prompt e a chave nas Configurações, em português e em inglês; as etapas seguintes fotografam a seção Launcher e a recusa por um `d3d9.dll` que não é do launcher (que fica intacto), cada uma nos dois idiomas, e a última fotografa a tela de Notícias nos dois idiomas.
 
 ## Launcher (instalação e self-update)
 
 Produto **Yufa Launcher**, publicado por **Hyped Games**: instalador NSIS one-click por usuário, sem UAC, em `C:\Hyped Games\Yufa Launcher` (unidade do sistema; `packages/launcher/build/installer.nsh`), atalho no menu Iniciar em `Hyped Games`. O `appId` (`br.com.yufa.launcher`) e o feed `launcher/latest.yml` não mudaram: um launcher já instalado continua se atualizando **na pasta onde está** — o instalador só escolhe a pasta nova quando não encontra instalação anterior no registro. Mover uma instalação antiga é desinstalar e instalar de novo (uma vez).
+
+O launcher procura versão nova ao abrir e baixa sozinho; a instalação acontece ao fechar. Em Configurações, seção Launcher, a linha da versão mostra a versão atual, a linha de status (procurando, atualizado, baixando N%, pronta para reiniciar, erro) e o botão **Verificar agora** (IPC `updater:check`), que repete a busca à mão. Um clique durante uma busca ou um download não faz nada, e com a atualização já baixada o botão dá lugar a **Reiniciar agora**. No mock (`?updater=…`), Verificar agora passa por procurando e termina em atualizado.
+
+## Shell (janela principal)
+
+A janela é 1200 por 700 (menor quando a área de trabalho não comporta; issue #20) e o `App.tsx` do renderer monta, de cima para baixo:
+
+- `TitleBar`: a faixa translúcida sobre o topo da arte, com a região de arrastar, o nome do produto, a versão, Configurações, minimizar e fechar.
+- `Hero` (`src/renderer/src/components/Hero.tsx`): 460 px contando os 40 da barra de título, a arte com um véu escuro que se dissolve no bege e um segundo véu lateral atrás do texto. Na metade de baixo, à esquerda: o eyebrow, o título e o subtítulo, depois o encaixe do `InstallPanel`, do `RuntimeWarning`, do `CompatibilityFixWarning` e do `ErrorBanner`, depois uma linha com o `PlayButton` e o `StatusArea`. O título dá lugar ao que ocupa o encaixe (`heroHeadline` em `src/renderer/src/lib/shell.ts`): some inteiro com o painel de instalação (com os problemas da pasta listados, só o eyebrow já entraria 16 px na pílula) e perde o subtítulo com um aviso ou erro, para o Jogar nunca sair da janela mesmo com dois avisos de uma vez. Cada aviso tem seu predicado no mesmo módulo, usado pelo componente e pelo hero. O selo de notícias salvas (feed do cache) aparece acima da linha de cards e no cabeçalho da tela de Notícias.
+- `TopNav`: a pílula flutuante 36 px abaixo da barra de título, com o logo por cima dela. Início e Notícias trocam a tela; Site, Discord, Database e Planner abrem no navegador (`appOpenExternal`), com os endereços em `packages/shared/src/links.ts` (subpath `@yufa/shared/links`, pelo mesmo motivo do `@yufa/shared/dxvk`). A pílula tem largura fixa e três colunas para o espaço do meio, e o logo sobre ele, ficarem no centro em qualquer idioma: sem isso o Chrome dimensiona as colunas pelo conteúdo e o logo cai em cima do Site.
+- Abaixo do hero, na tela Início, uma linha com três cards de notícia (`NewsGrid`: fixados primeiro, depois os mais novos, `orderNews` em `src/renderer/src/lib/news.ts`; data e marca de fixado acima do título, corpo de três linhas, "Ler mais" nos que têm link) e o `CommunityCard` de 270 px (quem está online e quantos membros, via `community:get`, e Entrar no Discord; sem contagem, os números somem e fica uma linha de descrição). A contagem é pedida uma vez ao abrir e de novo a cada volta ao Início, nunca por timer.
+- Na tela Notícias o hero encolhe para 216 px (só a arte e a pílula) e a lista completa ocupa o resto em três colunas, com corpos maiores e um link Voltar.
+
+Os ajudantes puros (`orderNews`, `homeNews`, `shellViewFromQuery`, `installPanelUp`, `heroHeadline`) têm testes em `packages/launcher/test`. No dev harness do renderer, além dos parâmetros das seções abaixo: `?view=news` abre a tela de Notícias, `&news=empty` mostra um feed vazio e `&discord=off` derruba a contagem do Discord.
+
+## Presença no Discord
+
+A contagem de quem está online e de membros do Discord vem do metadado público do convite permanente do site (`DISCORD_INVITE_CODE`, em `packages/shared/src/links.ts`, reexportado por `src/main/constants.ts` ao lado dos outros endpoints): o processo principal faz `GET https://discord.com/api/v10/invites/<code>?with_counts=true` com 5 s de timeout e responde `{ online, members }` pelo IPC `community:get`, ou `null` em qualquer falha (offline, resposta que não é 200, corpo fora do formato). Sem bot, sem token, sem timer: uma busca por chamada, e a CSP do renderer não muda porque a busca fica no main. O ajudante `fetchDiscordCounts` (`src/main/community.ts`) recebe o `fetch` injetado e tem testes para cada um desses casos. No mock, `communityGet` responde contagens fixas e `?discord=off` responde `null`.
+
+## Configurações
+
+`SettingsDialog` (`src/renderer/src/components/SettingsDialog.tsx`): 860 por 540, uma barra lateral de 208 px com as seções **Jogo** e **Launcher** e o Fechar no pé, e um painel que rola com uma linha por configuração (título, uma linha de explicação, o controle à direita). Jogo: pasta do jogo, argumentos de inicialização, ao iniciar o jogo, jogar sem conexão, a correção AMD, Reparar, Verificar runtimes. Launcher: idioma, conexões de download, aceleração de hardware, a versão com Verificar agora e a pasta de logs. As chaves ligado/desligado são o componente `Toggle`; cada controle salva na hora, não há Aplicar, e nenhuma configuração mudou de comportamento. `?view=settings` abre na seção Jogo e `?view=settings:launcher` na Launcher, a mesma string que `YUFA_VIEW` repassa; os ajudantes puros ficam em `src/renderer/src/lib/settingsDialog.ts`, com testes.
+
+## Compatibility fix (DXVK)
+
+O launcher leva dentro do pacote o `d3d9.dll` x86 do DXVK 2.5 e a licença dele (zlib), o Compatibility fix do `CONTEXT.md` para GPUs AMD (ADR 0003). O arquivo nunca entra no git: `npm run fetch-dxvk` baixa o `dxvk-2.5.tar.gz` oficial do GitHub e o `LICENSE` do repositório na tag `v2.5` (o archive só traz DLLs) para um cache por máquina (`%LOCALAPPDATA%\yufa-launcher\dxvk`, ou `YUFA_DXVK_CACHE`), tira `x32/d3d9.dll` do archive, confere o DLL contra `DXVK_SHA256` em `packages/shared/src/dxvk.ts` e grava os dois em `packages/launcher/build/dxvk/` (ignorado pelo git). Hash diferente do fixado: o script recusa, mostra os dois hashes e não deixa nada na pasta, nem um DLL antigo de uma rodada anterior.
+
+Passos de build:
+
+```
+npm run fetch-dxvk          # uma vez por máquina; --refresh baixa de novo, --cache / --out / --url / --license-url mudam os caminhos
+npm run dist                # o electron-builder copia build/dxvk para resources/dxvk no instalador
+```
+
+Sem a pasta preparada o `dist` falha antes de empacotar, com a mensagem dizendo para rodar o `fetch-dxvk`. O `e2e-setup` roda o `fetch-dxvk` sozinho (`--skip-dxvk` pula). No launcher, `bundledDxvkPath()` (`src/main/bundledDxvk.ts`) resolve o arquivo em `resources/dxvk/` no app empacotado e em `build/dxvk/` no modo dev.
+
+No lado do jogador, `src/main/dxvk.ts` faz o arquivo seguir a chave `amdCompatibilityEnabled` das configurações, que é o único estado da correção. `dxvk:enable` copia o DLL para `release\` (nome temporário e rename por cima) e liga a chave; com o hash atual já lá, não escreve nada; com um hash de versão anterior, substitui; com qualquer outro hash, recusa antes de escrever com o código `foreign-dll` e o caminho do arquivo, e a chave fica como estava. `dxvk:disable` desliga a chave e apaga o arquivo só quando o hash é um dos fixados; um arquivo estranho fica onde está e vira aviso. O `reconcile()` roda dentro do patcher a caminho de `ready` e `up-to-date` e antes de abrir o cliente: chave ligada, faz o mesmo que o enable (um arquivo apagado pelo antivírus volta, um pin novo atualiza o antigo); chave desligada, não faz nada. O resultado vai em `dxvk` no evento de estado e no `LaunchResult`; falha é aviso ao lado do Jogar, nunca bloqueio. As três operações recusam com o jogo aberto; enable e disable também recusam (`busy`) enquanto o patcher está no meio de uma rodada. Nenhum backup, nenhum arquivo de estado, nada novo na pasta do jogo.
+
+Do lado da UI: no primeiro `ready` ou `up-to-date` com Install Record completo, se há uma placa AMD na lista (`app.getGPUInfo`, qualquer adaptador, ativo ou não) e `amdCompatibilityPrompted` ainda é falso, um modal oferece Ativar ou Agora não. A chave `amdCompatibilityPrompted` liga de qualquer jeito, inclusive quando a correção já tinha sido ligada pelas Configurações antes (aí nada aparece). Uma recusa do Ativar (`foreign-dll`, jogo aberto) fica no próprio modal; a chave nas Configurações é o jeito de tentar de novo. Nas Configurações, seção Jogo, a chave vem com uma linha de explicação, a placa detectada, a atribuição do DXVK (licença zlib, `LICENSE` no pacote) e, embaixo, o motivo da última recusa desta visita ou, com a chave ligada e nada tocado ainda, o que o `reconcile()` recusou ao chegar em `ready` (um `d3d9.dll` estranho no caminho). No dev harness do renderer: `?mock=up-to-date&amd=1` mostra o prompt, `&prompted` pula, `&dxvk=on` começa ligado, `&dxvk=foreign` faz o enable recusar, `&dxvk=blocked` começa ligado com o arquivo estranho no caminho, `&view=settings` abre as Configurações (`&view=settings:launcher`, a seção Launcher).
+
+### Aceleração de hardware
+
+A chave `hardwareAcceleration` das configurações (padrão ligada) é o remédio para a janela preta ou piscando em placas antigas: desligada, o launcher chama `app.disableHardwareAcceleration()` antes do `whenReady`, o que obriga `src/main/boot.ts` a ler o `config.json` de forma síncrona logo no início do processo, depois do gancho `YUFA_USERDATA` e antes de qualquer outra coisa. A chave só vale para a janela do launcher, não para o jogo. Como a decisão é tomada no boot, `settings:set` devolve `{ settings, restartRequired }`, e `restartRequired` fica verdadeiro enquanto o valor salvo for diferente do que o processo abriu com; a chave nas Configurações (seção Launcher) mostra a nota de reinício embaixo. No dev harness, `?view=settings&hwaccel=off` começa com a chave desligada.
+
+Trocar de versão do DXVK é uma release do launcher: atualize `DXVK_VERSION` e `DXVK_SHA256`, mova o hash antigo para `DXVK_PREVIOUS_SHA256` (o launcher continua reconhecendo o arquivo que uma versão anterior instalou) e rode `fetch-dxvk` de novo.
 
 ## Contrato de patch (cliente ToS)
 

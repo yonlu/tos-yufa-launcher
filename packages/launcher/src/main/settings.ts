@@ -9,6 +9,9 @@ const DEFAULTS: Settings = {
   afterLaunch: 'quit',
   downloadConcurrency: 2,
   allowOfflinePlay: true,
+  hardwareAcceleration: true,
+  amdCompatibilityEnabled: false,
+  amdCompatibilityPrompted: false,
 }
 
 /** Tiny synchronous JSON settings store (userData/config.json), atomic writes. */
@@ -52,6 +55,9 @@ export class SettingsStore {
       afterLaunch: ['quit', 'minimize', 'stay'].includes(s.afterLaunch) ? s.afterLaunch : 'quit',
       downloadConcurrency: [1, 2, 3].includes(s.downloadConcurrency) ? s.downloadConcurrency : DEFAULTS.downloadConcurrency,
       allowOfflinePlay: s.allowOfflinePlay !== false,
+      hardwareAcceleration: s.hardwareAcceleration !== false,
+      amdCompatibilityEnabled: s.amdCompatibilityEnabled === true,
+      amdCompatibilityPrompted: s.amdCompatibilityPrompted === true,
     }
   }
 }

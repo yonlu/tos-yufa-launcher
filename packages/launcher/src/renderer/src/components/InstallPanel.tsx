@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatBytes } from '../lib/format'
+import { installPanelUp } from '../lib/shell'
 import { useLauncher } from '../store'
 
 const field =
@@ -19,7 +20,8 @@ export function InstallPanel() {
     useLauncher()
   const { t } = useTranslation()
 
-  if (patcher.state === 'update-available' && patcher.installIncomplete) {
+  if (!installPanelUp(patcher)) return null
+  if (patcher.state !== 'not-installed') {
     return (
       <Card title={t('install.resumeTitle')} intro={t('install.resumeIntro')}>
         <label className={labelClass}>{t('install.folder')}</label>
@@ -27,8 +29,6 @@ export function InstallPanel() {
       </Card>
     )
   }
-
-  if (patcher.state !== 'not-installed') return null
 
   const check = installCheck && installCheck.path === installPath ? installCheck : null
 
@@ -80,7 +80,7 @@ const labelClass = 'mt-3 mb-1 block text-xs font-medium uppercase tracking-wide 
 
 function Card({ title, intro, children }: { title: string; intro: string; children: ReactNode }) {
   return (
-    <div className="mx-8 mb-3 rounded-tos-panel border border-tos-border bg-tos-cream/90 px-5 py-4 shadow-tos-panel backdrop-blur-sm">
+    <div className="max-w-3xl rounded-tos-panel border border-white/50 bg-tos-cream/95 px-5 py-4 shadow-lg backdrop-blur-sm">
       <h2 className="font-display text-lg font-bold text-tos-burgundy">{title}</h2>
       <p className="mt-0.5 text-xs text-tos-brown-light">{intro}</p>
       {children}

@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./dxvk": "./src/dxvk.ts",
+    "./links": "./src/links.ts"
   },
   "dependencies": {
     "zod": "^3.25.0"

@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p packages/shared && tsc --noEmit -p packages/publish-cli && tsc --noEmit -p packages/launcher && tsc --noEmit -p tools",
     "dev": "npm run dev -w @yufa/launcher",
     "build": "npm run build -w @yufa/launcher",
+    "fetch-dxvk": "tsx tools/fetch-dxvk.ts",
     "dist": "npm run dist -w @yufa/launcher",
     "yufa-publish": "tsx packages/publish-cli/src/index.ts",
     "dev-server": "tsx tools/dev-server.ts",
@@ -24,6 +25,7 @@
     "@types/node": "^22.0.0",
     "png-to-ico": "^3.0.1",
     "sharp": "^0.35.3",
+    "tar": "^7.5.22",
     "tsx": "^4.22.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
