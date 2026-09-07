@@ -8,6 +8,7 @@ Launcher + sistema de publicação de patches para o servidor Yufa | ToS - Class
 - `packages/launcher` — app Electron (electron-vite + React). UI do jogador: verificar → baixar → jogar.
 - `packages/publish-cli` — CLI do admin (`npm run yufa-publish`): release / patch / rollback / news / verify (`--mirror <pasta>` compara hashes com a pasta local) / gc (`--keep N` apaga Blobs que nenhum dos N Builds mais recentes nem o atual referencia; nunca apaga Manifests) / redist push (`--dir <pasta>` sobe os instaladores de runtime e escreve `redist/index.json` por último) / launcher.
 - `tools/dev-server.ts` — servidor estático local com suporte a HTTP Range para testes E2E.
+- `tools/fetch-dxvk.ts` — baixa o archive oficial do DXVK, confere `x32/d3d9.dll` contra o hash fixado em `packages/shared/src/dxvk.ts` e o deixa em `packages/launcher/build/dxvk/` para o `dist`. Ver [Compatibility fix (DXVK)](#compatibility-fix-dxvk).
 - `tools/e2e-setup.ts` / `tools/e2e-smoke.ts` — sandbox E2E local: árvore de jogo falsa publicada como Build, e o ensaio automático (instalar → atualizar → rollback) com o launcher empacotado. Ver [Sandbox E2E local](#sandbox-e2e-local).
 
 ## Comandos
@@ -17,6 +18,7 @@ npm install                 # instala tudo (workspaces)
 npm test                    # unit + integration tests (vitest)
 npm run typecheck           # tsc em shared, publish-cli, launcher e tools
 npm run dev                 # launcher em modo dev
+npm run fetch-dxvk          # baixa o DXVK oficial, confere o hash e prepara packages/launcher/build/dxvk (antes do dist)
 npm run dist                # build NSIS (electron-builder) → packages/launcher/release-builds
 npm run yufa-publish -- …   # CLI de publicação
 npm run dev-server          # servidor de patches local
@@ -71,6 +73,21 @@ npm run e2e        # painel de instalação → instala Build 1 → atualiza par
 ## Launcher (instalação e self-update)
 
 Produto **Yufa Launcher**, publicado por **Hyped Games**: instalador NSIS one-click por usuário, sem UAC, em `C:\Hyped Games\Yufa Launcher` (unidade do sistema; `packages/launcher/build/installer.nsh`), atalho no menu Iniciar em `Hyped Games`. O `appId` (`br.com.yufa.launcher`) e o feed `launcher/latest.yml` não mudaram: um launcher já instalado continua se atualizando **na pasta onde está** — o instalador só escolhe a pasta nova quando não encontra instalação anterior no registro. Mover uma instalação antiga é desinstalar e instalar de novo (uma vez).
+
+## Compatibility fix (DXVK)
+
+O launcher leva dentro do pacote o `d3d9.dll` x86 do DXVK 2.5 e a licença dele (zlib), o Compatibility fix do `CONTEXT.md` para GPUs AMD (ADR 0003). O arquivo nunca entra no git: `npm run fetch-dxvk` baixa o `dxvk-2.5.tar.gz` oficial do GitHub e o `LICENSE` do repositório na tag `v2.5` (o archive só traz DLLs) para um cache por máquina (`%LOCALAPPDATA%\yufa-launcher\dxvk`, ou `YUFA_DXVK_CACHE`), tira `x32/d3d9.dll` do archive, confere o DLL contra `DXVK_SHA256` em `packages/shared/src/dxvk.ts` e grava os dois em `packages/launcher/build/dxvk/` (ignorado pelo git). Hash diferente do fixado: o script recusa, mostra os dois hashes e não deixa nada na pasta, nem um DLL antigo de uma rodada anterior.
+
+Passos de build:
+
+```
+npm run fetch-dxvk          # uma vez por máquina; --refresh baixa de novo, --cache / --out / --url / --license-url mudam os caminhos
+npm run dist                # o electron-builder copia build/dxvk para resources/dxvk no instalador
+```
+
+Sem a pasta preparada o `dist` falha antes de empacotar, com a mensagem dizendo para rodar o `fetch-dxvk`. O `e2e-setup` roda o `fetch-dxvk` sozinho (`--skip-dxvk` pula). No launcher, `bundledDxvkPath()` (`src/main/bundledDxvk.ts`) resolve o arquivo em `resources/dxvk/` no app empacotado e em `build/dxvk/` no modo dev.
+
+Trocar de versão do DXVK é uma release do launcher: atualize `DXVK_VERSION` e `DXVK_SHA256`, mova o hash antigo para `DXVK_PREVIOUS_SHA256` (o launcher continua reconhecendo o arquivo que uma versão anterior instalou) e rode `fetch-dxvk` de novo.
 
 ## Contrato de patch (cliente ToS)
 

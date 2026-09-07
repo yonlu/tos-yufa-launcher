@@ -9,3 +9,4 @@ coverage/
 release-builds/
 e2e-sandbox/
 .yufa-hash-cache.json
+packages/launcher/build/dxvk/

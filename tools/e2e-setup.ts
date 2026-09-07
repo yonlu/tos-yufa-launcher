@@ -7,6 +7,7 @@ import { DEFAULT_EXCLUDES, DEFAULT_INCLUDES, DEFAULT_SEED_ONCE, type PublishConf
 import { LocalDirStore } from '../packages/publish-cli/src/store'
 import { patchFileName } from '../packages/shared/src/index'
 import { argOption, isMainModule } from './cli'
+import { DEFAULT_STAGE_DIR, defaultCacheDir, fetchDxvk } from './fetch-dxvk'
 
 /**
  * Local end-to-end sandbox: a fake full game tree (data, patch, release with
@@ -17,6 +18,10 @@ import { argOption, isMainModule } from './cli'
  *
  *   npx tsx tools/e2e-setup.ts --base <dir> [--url http://127.0.0.1:8787/] [--count 2] [--size 3000000]
  *   npx tsx tools/e2e-setup.ts --base <dir> --bump     # Build N+1: one file changed, one patch archive added
+ *
+ * Run as a script it also stages the Compatibility fix (tools/fetch-dxvk.ts)
+ * so the `npm run dist` the packaged smoke needs carries the real DLL;
+ * --skip-dxvk leaves that out.
  *
  * The sandbox carries its own publish.config.json, so the CLI can act on the
  * store too:  yufa-publish --config <dir>/publish.config.json --local-out <dir>/store rollback 1
@@ -201,6 +206,9 @@ if (isMainModule(import.meta.url)) {
   const opt = (name: string, fallback: string): string => argOption(args, name, fallback)
   const base = resolve(opt('base', './e2e-sandbox'))
   const url = opt('url', 'http://127.0.0.1:8787/')
+  if (!args.includes('--skip-dxvk')) {
+    await fetchDxvk({ cacheDir: defaultCacheDir(), stageDir: DEFAULT_STAGE_DIR, log: (msg) => console.error(`dxvk: ${msg}`) })
+  }
   const bump = args.includes('--bump') ? await bumpSandbox({ base, url }) : null
   const result: SandboxResult =
     bump ?? (await buildSandbox({ base, url, count: Number(opt('count', '2')), size: Number(opt('size', '3000000')) }))
