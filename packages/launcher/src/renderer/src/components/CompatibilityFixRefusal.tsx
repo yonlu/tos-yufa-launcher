@@ -14,8 +14,8 @@ export function CompatibilityFixRefusal({ result }: { result: DxvkResult | null 
   if (!reason) return null
   return (
     <>
-      <p className="text-xs text-tos-burgundy">{t(dxvkRefusalKey(reason))}</p>
-      {result?.error?.message && <p className="mt-0.5 break-all text-[10px] text-tos-brown-muted">{result.error.message}</p>}
+      <p className="text-[13px] leading-[1.45] text-tos-burgundy">{t(dxvkRefusalKey(reason))}</p>
+      {result?.error?.message && <p className="mt-0.5 break-all font-mono text-[11px] text-tos-brown-muted">{result.error.message}</p>}
     </>
   )
 }

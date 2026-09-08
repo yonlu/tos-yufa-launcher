@@ -1,11 +1,20 @@
 import { useTranslation } from 'react-i18next'
+import { focusRing } from '../lib/ui'
 import { useLauncher } from '../store'
 
 function Spinner() {
   return (
-    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden>
       <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-90" d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function PlayIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M7 4.5v15l13-7.5z" />
     </svg>
   )
 }
@@ -19,7 +28,13 @@ interface ButtonSpec {
   fillPercent?: number
 }
 
-/** The single morphing call-to-action: check → update (with progress fill) → play. */
+/**
+ * The single morphing call-to-action, and the only orange on the screen:
+ * check, then update or install (with a progress fill), then play. The
+ * site's tos-primary button: Philosopher, the orange gradient, brown text,
+ * the darker orange border. Waiting states (checking, verifying) are a
+ * quiet tan button instead.
+ */
 export function PlayButton() {
   const {
     patcher,
@@ -112,15 +127,13 @@ export function PlayButton() {
     }
   })()
 
-  // The site's design system has one primary treatment (orange CTA) — play and
-  // update both map to it; label + progress fill disambiguate.
+  // play and update share the site's one primary treatment; the label and the progress fill tell them apart
   const tosPrimary =
-    'border-2 border-tos-button-primary-border bg-gradient-to-b from-tos-orange-light via-tos-orange to-tos-orange-dark text-tos-brown shadow-tos-cta [text-shadow:0px_1px_0px_rgba(255,255,255,0.3)] enabled:hover:shadow-tos-cta-hover enabled:hover:-translate-y-0.5'
+    'border-tos-button-primary-border bg-gradient-to-b from-tos-orange-light via-tos-orange to-tos-orange-dark text-tos-brown shadow-tos-cta [text-shadow:0px_1px_0px_rgba(255,255,255,0.3)] enabled:hover:shadow-tos-cta-hover enabled:hover:-translate-y-0.5'
   const palette = {
     play: tosPrimary,
     update: tosPrimary,
-    neutral:
-      'border-2 border-white/35 bg-white/15 text-white backdrop-blur-sm enabled:hover:bg-white/25 enabled:hover:border-white/50',
+    neutral: 'border-tos-border-dark bg-tos-tan text-tos-brown-light enabled:hover:border-tos-brown-muted enabled:hover:text-tos-brown',
   }[spec.variant]
 
   return (
@@ -128,18 +141,19 @@ export function PlayButton() {
       type="button"
       onClick={spec.onClick}
       disabled={spec.disabled}
-      className={`font-display relative h-14 w-60 shrink-0 overflow-hidden rounded-tos-cta text-base font-bold uppercase tracking-wider transition-all disabled:cursor-default ${palette} ${
-        spec.disabled && spec.fillPercent === undefined ? 'opacity-80' : ''
+      className={`font-display relative inline-flex h-[58px] min-w-[164px] shrink-0 items-center justify-center gap-3 overflow-hidden rounded-tos-cta border-2 px-10 text-[21px] font-bold transition-[box-shadow,transform,opacity] disabled:cursor-default ${palette} ${focusRing} ${
+        spec.disabled && spec.fillPercent === undefined && spec.variant !== 'neutral' ? 'opacity-80' : ''
       }`}
     >
       {spec.fillPercent !== undefined && (
         <span
+          aria-hidden
           className="absolute inset-y-0 left-0 bg-white/40 transition-[width] duration-300"
           style={{ width: `${spec.fillPercent}%` }}
         />
       )}
-      <span className="relative flex items-center justify-center gap-2">
-        {spec.spinner && <Spinner />}
+      <span className="relative flex items-center gap-3">
+        {spec.spinner ? <Spinner /> : spec.variant === 'play' && <PlayIcon />}
         {spec.label}
       </span>
     </button>

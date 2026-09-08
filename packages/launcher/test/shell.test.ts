@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PatcherStateEvent } from '@yufa/shared'
-import { heroHeadline, installPanelUp, shellViewFromQuery } from '../src/renderer/src/lib/shell'
+import { installPanelUp, shellViewFromQuery, subtitleShown } from '../src/renderer/src/lib/shell'
 
 const event = (partial: Partial<PatcherStateEvent> & Pick<PatcherStateEvent, 'state'>): PatcherStateEvent => partial
 
@@ -9,12 +9,17 @@ describe('shellViewFromQuery', () => {
     expect(shellViewFromQuery('news')).toBe('news')
   })
 
-  it('opens Home otherwise, the Settings views included', () => {
+  it('opens the Settings view for a settings query with a section it knows', () => {
+    expect(shellViewFromQuery('settings')).toBe('settings')
+    expect(shellViewFromQuery('settings:launcher')).toBe('settings')
+    expect(shellViewFromQuery('settings:game')).toBe('settings')
+  })
+
+  it('opens Home otherwise, a settings section it does not know included', () => {
     expect(shellViewFromQuery(null)).toBe('home')
     expect(shellViewFromQuery('')).toBe('home')
     expect(shellViewFromQuery('home')).toBe('home')
-    expect(shellViewFromQuery('settings')).toBe('home')
-    expect(shellViewFromQuery('settings:launcher')).toBe('home')
+    expect(shellViewFromQuery('settings:account')).toBe('home')
   })
 })
 
@@ -35,27 +40,27 @@ describe('installPanelUp', () => {
   })
 })
 
-describe('heroHeadline', () => {
-  it('is the whole headline on a quiet launcher', () => {
-    expect(heroHeadline(event({ state: 'up-to-date' }))).toBe('full')
-    expect(heroHeadline(event({ state: 'updating' }))).toBe('full')
-    expect(heroHeadline(event({ state: 'update-available' }))).toBe('full')
+describe('subtitleShown', () => {
+  it('shows the subtitle on a quiet launcher', () => {
+    expect(subtitleShown(event({ state: 'up-to-date' }))).toBe(true)
+    expect(subtitleShown(event({ state: 'updating' }))).toBe(true)
+    expect(subtitleShown(event({ state: 'update-available' }))).toBe(true)
   })
 
-  it('gives way to the install panel entirely', () => {
-    expect(heroHeadline(event({ state: 'not-installed' }))).toBe('none')
-    expect(heroHeadline(event({ state: 'update-available', installIncomplete: true }))).toBe('none')
+  it('gives its place to the install form', () => {
+    expect(subtitleShown(event({ state: 'not-installed' }))).toBe(false)
+    expect(subtitleShown(event({ state: 'update-available', installIncomplete: true }))).toBe(false)
   })
 
-  it('drops the subtitle when a banner or warning takes the slot, so two of them still leave Play in view', () => {
-    expect(heroHeadline(event({ state: 'error', error: { code: 'offline' } }))).toBe('title')
-    expect(heroHeadline(event({ state: 'ready', redist: { status: 'failed', missing: ['directx'], error: { code: 'redist-failed' } } }))).toBe('title')
-    expect(heroHeadline(event({ state: 'ready', dxvk: { outcome: 'foreign', enabled: true, error: { code: 'foreign-dll' } } }))).toBe('title')
+  it('gives its place to an error or a warning', () => {
+    expect(subtitleShown(event({ state: 'error', error: { code: 'offline' } }))).toBe(false)
+    expect(subtitleShown(event({ state: 'ready', redist: { status: 'failed', missing: ['directx'], error: { code: 'redist-failed' } } }))).toBe(false)
+    expect(subtitleShown(event({ state: 'ready', dxvk: { outcome: 'foreign', enabled: true, error: { code: 'foreign-dll' } } }))).toBe(false)
   })
 
-  it('keeps the subtitle for outcomes that show no warning, and for an error state with nothing to say', () => {
-    expect(heroHeadline(event({ state: 'ready', redist: { status: 'installed', missing: ['directx'] } }))).toBe('full')
-    expect(heroHeadline(event({ state: 'ready', dxvk: { outcome: 'present', enabled: true } }))).toBe('full')
-    expect(heroHeadline(event({ state: 'error' }))).toBe('full')
+  it('stays for outcomes that show no warning, and for an error state with nothing to say', () => {
+    expect(subtitleShown(event({ state: 'ready', redist: { status: 'installed', missing: ['directx'] } }))).toBe(true)
+    expect(subtitleShown(event({ state: 'ready', dxvk: { outcome: 'present', enabled: true } }))).toBe(true)
+    expect(subtitleShown(event({ state: 'error' }))).toBe(true)
   })
 })
