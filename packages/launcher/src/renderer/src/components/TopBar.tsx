@@ -1,14 +1,12 @@
-import type { CSSProperties, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 // the links subpath alone: the package root would drag zod into the renderer bundle
 import { DATABASE_URL, DISCORD_INVITE_URL, PLANNER_URL, SITE_URL } from '@yufa/shared/links'
 import logoUrl from '../assets/logo.webp'
 import type { ShellView } from '../lib/shell'
-import { focusRing } from '../lib/ui'
+import { DRAG, NO_DRAG, focusRing } from '../lib/ui'
+import { NavLink } from './NavLink'
 import { UpdateNotice } from './UpdateNotice'
-
-export const DRAG = { WebkitAppRegion: 'drag' } as unknown as CSSProperties
-export const NO_DRAG = { WebkitAppRegion: 'no-drag' } as unknown as CSSProperties
 
 /** The nav's right half: the site and its tools, opened in the player's browser. */
 const EXTERNAL = [
@@ -17,30 +15,6 @@ const EXTERNAL = [
   { key: 'planner', href: PLANNER_URL },
   { key: 'discord', href: DISCORD_INVITE_URL },
 ] as const
-
-/** A text link in the site's navbar style: Philosopher, brown, orange with an underline when it is the current view. */
-export function NavLink({
-  active = false,
-  onClick,
-  children,
-}: {
-  active?: boolean
-  onClick: () => void
-  children: ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      aria-current={active ? 'page' : undefined}
-      onClick={onClick}
-      className={`font-display border-b-2 px-0.5 py-1.5 text-[15px] font-bold leading-5 transition-colors hover:text-tos-orange-dark ${focusRing} ${
-        active ? 'border-tos-orange text-tos-orange-dark' : 'border-transparent text-tos-brown'
-      }`}
-    >
-      {children}
-    </button>
-  )
-}
 
 function IconButton({
   onClick,

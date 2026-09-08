@@ -17,8 +17,8 @@ export function Backdrop({ aside }: { aside: boolean }) {
         <img
           src={goddessUrl}
           alt=""
-          width={560}
-          height={560}
+          width={800}
+          height={800}
           className="absolute -bottom-[60px] right-4 h-[660px] w-auto max-w-none mask-b-from-62% mask-b-to-96%"
         />
       </div>

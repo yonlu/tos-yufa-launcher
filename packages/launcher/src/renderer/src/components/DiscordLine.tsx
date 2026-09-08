@@ -18,7 +18,7 @@ export function DiscordLine() {
       <p className="flex items-center gap-2 text-[13px] text-tos-brown">
         {community ? (
           <>
-            <span aria-hidden className="h-2 w-2 rounded-full bg-tos-green shadow-[0_0_0_3px_rgba(130,168,0,0.18)]" />
+            <span aria-hidden className="h-2 w-2 rounded-full bg-tos-green ring-[3px] ring-tos-green/20" />
             {t('community.online', { count: community.online.toLocaleString(i18n.language) })}
           </>
         ) : (
@@ -28,7 +28,7 @@ export function DiscordLine() {
       <button
         type="button"
         onClick={() => void window.yufa.appOpenExternal(DISCORD_INVITE_URL)}
-        className={`h-[34px] rounded-[10px] bg-tos-discord px-4 text-[13px] font-bold text-white transition-colors hover:bg-tos-discord-hover ${focusRing}`}
+        className={`h-[34px] rounded-tos-panel bg-tos-discord px-4 text-[13px] font-bold text-white transition-colors hover:bg-tos-discord-hover ${focusRing}`}
       >
         {t('community.join')}
       </button>

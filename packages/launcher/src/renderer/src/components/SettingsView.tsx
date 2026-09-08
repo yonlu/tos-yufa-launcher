@@ -9,7 +9,7 @@ import { field, surfaceButton } from '../lib/ui'
 import { useLauncher } from '../store'
 import { CompatibilityFixRefusal } from './CompatibilityFixRefusal'
 import { Toggle } from './Toggle'
-import { NavLink } from './TopBar'
+import { NavLink } from './NavLink'
 
 /** One setting: title and a one-line hint on the left, its control on the right, anything that needs the full width under both. */
 function Row({ title, hint, extra, note, children }: { title: string; hint: string; extra?: ReactNode; note?: ReactNode; children: ReactNode }) {
@@ -54,8 +54,10 @@ export function SettingsView({ initialSection, onLeave }: { initialSection: Sett
   const settings = useLauncher((s) => s.settings)
 
   useEffect(() => {
+    // a select or a field takes Escape for itself first (closing its list, dropping a draft); only a bare Escape leaves
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onLeave()
+      const control = e.target instanceof HTMLSelectElement || e.target instanceof HTMLInputElement
+      if (e.key === 'Escape' && !control && !e.defaultPrevented) onLeave()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

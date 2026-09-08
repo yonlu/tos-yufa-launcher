@@ -1,9 +1,6 @@
-import type { CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
-import { textLink } from '../lib/ui'
+import { NO_DRAG, textLink } from '../lib/ui'
 import { useLauncher } from '../store'
-
-const NO_DRAG = { WebkitAppRegion: 'no-drag' } as unknown as CSSProperties
 
 /**
  * The launcher's own update, as one line in the top bar's empty middle:

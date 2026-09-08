@@ -1,4 +1,10 @@
+import type { CSSProperties } from 'react'
+
 /** The few class strings the views share, so a field or a plain button looks the same on every screen. */
+
+/** The frameless window's drag region, and the exception for what is clickable inside it. */
+export const DRAG = { WebkitAppRegion: 'drag' } as unknown as CSSProperties
+export const NO_DRAG = { WebkitAppRegion: 'no-drag' } as unknown as CSSProperties
 
 /** The visible focus ring: the site's orange, outside the element, keyboard only. */
 export const focusRing = 'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tos-orange'

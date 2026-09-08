@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Backdrop } from './components/Backdrop'
 import { DiscordLine } from './components/DiscordLine'
 import { HomeView } from './components/HomeView'
@@ -37,6 +37,7 @@ export default function App() {
   useEffect(() => {
     void init()
   }, [init])
+  const leaveSettings = useCallback(() => setView('home'), [])
 
   // the Discord counts: init fetched them once at start; again each time the player comes back Home, never on a timer
   const firstView = useRef(true)
@@ -53,7 +54,7 @@ export default function App() {
         <TopBar view={view} onNavigate={setView} />
         {view === 'home' && <HomeView onNavigate={setView} />}
         {view === 'news' && <NewsView />}
-        {view === 'settings' && <SettingsView initialSection={settingsStart} onLeave={() => setView('home')} />}
+        {view === 'settings' && <SettingsView initialSection={settingsStart} onLeave={leaveSettings} />}
       </div>
       <DiscordLine />
     </div>
