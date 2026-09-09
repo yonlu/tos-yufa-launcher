@@ -11,9 +11,22 @@ export function formatEta(seconds: number): string {
   return `${seconds}s`
 }
 
-export function formatDate(iso: string, lang: string): string {
+/**
+ * A news date the way the site's patch-note list writes it: `01 jul 2026`,
+ * the month abbreviated in the launcher's language and stripped of the
+ * period some locales add (pt-BR gives `jul.`). The list sets it in
+ * uppercase mono. Anything that is not a `YYYY-MM-DD` date is shown as is.
+ */
+export function formatNewsDate(iso: string, lang: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!match) return iso
+  const [, year, month, day] = match
   try {
-    return new Intl.DateTimeFormat(lang, { dateStyle: 'long' }).format(new Date(`${iso}T00:00:00`))
+    const name = new Intl.DateTimeFormat(lang, { month: 'short' })
+      .format(new Date(Number(year), Number(month) - 1, 1))
+      .replace(/\./g, '')
+      .toLowerCase()
+    return `${day} ${name} ${year}`
   } catch {
     return iso
   }

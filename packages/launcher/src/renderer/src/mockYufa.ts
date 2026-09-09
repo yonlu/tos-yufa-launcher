@@ -19,11 +19,11 @@ import type {
  * &prompted), &dxvk=on (the Compatibility fix switched on), &dxvk=foreign (a d3d9.dll the launcher does not
  * recognise makes enable refuse) or &dxvk=blocked (the switch on and that file in the way, so reconciling at ready
  * reports the refusal), &hwaccel=off (hardware acceleration switched off at "boot", so switching it back on asks
- * for a restart), &view=settings or &view=settings:launcher (Settings open on start, at that section),
+ * for a restart), &view=settings or &view=settings:launcher (the Settings view open on start, at that section),
  * &updater=checking|none|available|downloading|ready|error
  * (the launcher update status a second after start; Check now in Settings always runs checking then none),
- * &discord=off (the Discord counts fail, so the community card shows no numbers), &news=empty (a feed with
- * nothing in it), &view=news (the News view open on start).
+ * &discord=off (the Discord counts fail, so the Discord line shows no number), &news=empty (a feed with
+ * nothing in it), &stalenews (the feed came from the cache), &view=news (the News view open on start).
  * Every UI state can be exercised without Electron or a patch server.
  */
 export function installMockIfNeeded(): void {

@@ -5,14 +5,11 @@ import type { DxvkResult, Settings } from '@yufa/shared'
 import { DXVK_VERSION } from '@yufa/shared/dxvk'
 import { amdAdapterName } from '../lib/compatibilityFix'
 import { SETTINGS_SECTIONS, compatibilityFixRowResult, updaterControl, type SettingsSection } from '../lib/settingsDialog'
+import { field, surfaceButton } from '../lib/ui'
 import { useLauncher } from '../store'
 import { CompatibilityFixRefusal } from './CompatibilityFixRefusal'
 import { Toggle } from './Toggle'
-
-const field =
-  'rounded-md border border-tos-input-border bg-tos-input-bg px-3 py-2 text-sm text-tos-brown outline-none focus:border-tos-orange'
-const surfaceButton =
-  'rounded-md bg-tos-tan px-3 py-2 text-sm text-tos-brown-light hover:bg-tos-border hover:text-tos-brown disabled:opacity-60'
+import { NavLink } from './NavLink'
 
 /** One setting: title and a one-line hint on the left, its control on the right, anything that needs the full width under both. */
 function Row({ title, hint, extra, note, children }: { title: string; hint: string; extra?: ReactNode; note?: ReactNode; children: ReactNode }) {
@@ -21,7 +18,7 @@ function Row({ title, hint, extra, note, children }: { title: string; hint: stri
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-tos-brown">{title}</p>
-          <p className="mt-0.5 text-xs text-tos-brown-light">{hint}</p>
+          <p className="mt-0.5 text-[13px] leading-[1.45] text-tos-brown-light">{hint}</p>
           {extra}
         </div>
         <div className="flex shrink-0 items-center gap-2">{children}</div>
@@ -31,7 +28,7 @@ function Row({ title, hint, extra, note, children }: { title: string; hint: stri
   )
 }
 
-/** What the Game section has said during this visit. Kept by the dialog, so a trip to the other section does not lose it. */
+/** What the Game section has said during this visit. Kept by the view, so a trip to the other section does not lose it. */
 interface GameVisit {
   /** Browse picked a folder without a game in it. */
   invalidPath: boolean
@@ -42,76 +39,56 @@ interface GameVisit {
 const FRESH_VISIT: GameVisit = { invalidPath: false, fixResult: null, fixWorking: false }
 
 /**
- * Settings: a sidebar with the two sections and Close at its foot, and a
- * scrolling pane with one row per setting. Every control saves on change;
- * there is no Apply. Closing ends the visit: the next one opens at the
+ * Settings, a view like Home and News rather than a dialog over them: the
+ * heading with the two sections as text links beside it, and under it one
+ * row per setting, scrolling. Every control saves on change; there is no
+ * Apply. Leaving the view (the nav, the gear, Escape, or an action that
+ * takes the player back to Play) ends the visit: the next one opens at the
  * start section with nothing left over (a refusal under the Compatibility
  * fix switch, an invalid folder).
  */
-export function SettingsDialog({ open, initialSection, onClose }: { open: boolean; initialSection: SettingsSection; onClose: () => void }) {
+export function SettingsView({ initialSection, onLeave }: { initialSection: SettingsSection; onLeave: () => void }) {
   const { t } = useTranslation()
   const [section, setSection] = useState<SettingsSection>(initialSection)
   const [visit, setVisit] = useState<GameVisit>(FRESH_VISIT)
   const settings = useLauncher((s) => s.settings)
-  useEffect(() => {
-    if (!open) {
-      setSection(initialSection)
-      setVisit(FRESH_VISIT)
-    }
-  }, [open, initialSection])
 
-  if (!open || !settings) return null
+  useEffect(() => {
+    // a select or a field takes Escape for itself first (closing its list, dropping a draft); only a bare Escape leaves
+    const onKey = (e: KeyboardEvent): void => {
+      const control = e.target instanceof HTMLSelectElement || e.target instanceof HTMLInputElement
+      if (e.key === 'Escape' && !control && !e.defaultPrevented) onLeave()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onLeave])
+
+  if (!settings) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-labelledby="settings-title"
-        className="animate-fade-up flex h-[540px] w-[860px] overflow-hidden rounded-tos-panel border border-tos-border bg-tos-cream opacity-0 shadow-xl [animation-duration:0.3s]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <aside className="flex w-52 shrink-0 flex-col border-r border-tos-border bg-tos-tan p-4">
-          <h2 id="settings-title" className="font-display mb-4 px-3 text-lg font-bold text-tos-burgundy">
-            {t('settings.title')}
-          </h2>
-          <nav aria-label={t('settings.title')} className="flex flex-col gap-1">
-            {SETTINGS_SECTIONS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                aria-current={section === s ? 'page' : undefined}
-                onClick={() => setSection(s)}
-                className={`rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                  section === s ? 'bg-tos-cream font-medium text-tos-burgundy shadow-tos-panel' : 'text-tos-brown-light hover:bg-tos-cream/60 hover:text-tos-brown'
-                }`}
-              >
-                {t(`settings.section.${s}`)}
-              </button>
-            ))}
-          </nav>
-          <button
-            type="button"
-            onClick={onClose}
-            className="mt-auto rounded-md border border-tos-border bg-tos-cream px-3 py-2 text-sm text-tos-brown-light hover:border-tos-border-dark hover:text-tos-brown"
-          >
-            {t('settings.close')}
-          </button>
-        </aside>
-
-        <div className="min-w-0 flex-1 overflow-y-auto px-8 py-5">
-          <h3 className="font-display mb-1 text-base font-bold text-tos-burgundy">{t(`settings.section.${section}`)}</h3>
-          {section === 'game' ? (
-            <GameSection visit={visit} onVisit={(patch) => setVisit((v) => ({ ...v, ...patch }))} onClose={onClose} />
-          ) : (
-            <LauncherSection />
-          )}
-        </div>
+    <main className="flex min-h-0 flex-1 flex-col pb-4 pl-14 pt-8">
+      <div className="flex w-[600px] shrink-0 items-baseline justify-between border-b border-tos-border-dark pb-3">
+        <h1 className="font-display text-[34px] font-bold leading-none text-tos-burgundy">{t('settings.title')}</h1>
+        <nav aria-label={t('settings.title')} className="flex items-center gap-[22px]">
+          {SETTINGS_SECTIONS.map((s) => (
+            <NavLink key={s} active={section === s} onClick={() => setSection(s)}>
+              {t(`settings.section.${s}`)}
+            </NavLink>
+          ))}
+        </nav>
       </div>
-    </div>
+      <div className="min-h-0 w-[600px] flex-1 overflow-y-auto pr-3">
+        {section === 'game' ? (
+          <GameSection visit={visit} onVisit={(patch) => setVisit((v) => ({ ...v, ...patch }))} onLeave={onLeave} />
+        ) : (
+          <LauncherSection />
+        )}
+      </div>
+    </main>
   )
 }
 
-function GameSection({ visit, onVisit, onClose }: { visit: GameVisit; onVisit: (patch: Partial<GameVisit>) => void; onClose: () => void }) {
+function GameSection({ visit, onVisit, onLeave }: { visit: GameVisit; onVisit: (patch: Partial<GameVisit>) => void; onLeave: () => void }) {
   const { t } = useTranslation()
   const { settings, gpu, patcher, saveSettings, selectGamePath, repair, checkRuntimes, setCompatibilityFix } = useLauncher()
   const { invalidPath, fixResult, fixWorking } = visit
@@ -140,9 +117,9 @@ function GameSection({ visit, onVisit, onClose }: { visit: GameVisit; onVisit: (
       <Row
         title={t('settings.gamePath')}
         hint={t('settings.gamePathHint')}
-        note={invalidPath && <p className="text-xs text-tos-burgundy">{t('settings.invalidPath')}</p>}
+        note={invalidPath && <p className="text-[13px] text-tos-burgundy">{t('settings.invalidPath')}</p>}
       >
-        <input className={`${field} w-52`} value={settings.gamePath} readOnly title={settings.gamePath} />
+        <input className={`${field} w-44`} value={settings.gamePath} readOnly title={settings.gamePath} aria-label={t('settings.gamePath')} />
         <button type="button" onClick={() => void browse()} className={surfaceButton}>
           {t('settings.browse')}
         </button>
@@ -150,7 +127,7 @@ function GameSection({ visit, onVisit, onClose }: { visit: GameVisit; onVisit: (
 
       <Row title={t('settings.launchArgs')} hint={t('settings.launchArgsHint')}>
         <input
-          className={`${field} w-52`}
+          className={`${field} w-44`}
           defaultValue={settings.launchArgs}
           onBlur={(e) => void saveSettings({ launchArgs: e.target.value })}
           spellCheck={false}
@@ -160,7 +137,7 @@ function GameSection({ visit, onVisit, onClose }: { visit: GameVisit; onVisit: (
 
       <Row title={t('settings.afterLaunch')} hint={t('settings.afterLaunchHint')}>
         <select
-          className={`${field} w-52`}
+          className={`${field} w-44`}
           value={settings.afterLaunch}
           onChange={(e) => void saveSettings({ afterLaunch: e.target.value as Settings['afterLaunch'] })}
           aria-label={t('settings.afterLaunch')}
@@ -184,8 +161,8 @@ function GameSection({ visit, onVisit, onClose }: { visit: GameVisit; onVisit: (
         hint={t('settings.amdFixHint')}
         extra={
           <>
-            <p className="mt-1.5 text-xs text-tos-brown-light">{adapter ? t('dxvk.adapter', { name: adapter }) : t('settings.amdFixNoAdapter')}</p>
-            <p className="mt-0.5 text-[10px] text-tos-brown-muted">{t('settings.amdFixAttribution', { version: DXVK_VERSION })}</p>
+            <p className="mt-1.5 text-[13px] text-tos-brown-light">{adapter ? t('dxvk.adapter', { name: adapter }) : t('settings.amdFixNoAdapter')}</p>
+            <p className="mt-0.5 text-[11px] text-tos-brown-muted">{t('settings.amdFixAttribution', { version: DXVK_VERSION })}</p>
           </>
         }
         note={rowResult?.error && <CompatibilityFixRefusal result={rowResult} />}
@@ -198,7 +175,7 @@ function GameSection({ visit, onVisit, onClose }: { visit: GameVisit; onVisit: (
           type="button"
           onClick={() => {
             void repair()
-            onClose()
+            onLeave()
           }}
           className={surfaceButton}
         >
@@ -211,7 +188,7 @@ function GameSection({ visit, onVisit, onClose }: { visit: GameVisit; onVisit: (
           type="button"
           onClick={() => {
             void checkRuntimes()
-            onClose()
+            onLeave()
           }}
           className={surfaceButton}
         >
@@ -233,7 +210,7 @@ function LauncherSection() {
     <>
       <Row title={t('settings.language')} hint={t('settings.languageHint')}>
         <select
-          className={`${field} w-52`}
+          className={`${field} w-44`}
           value={settings.language}
           onChange={(e) => void saveSettings({ language: e.target.value as Settings['language'] })}
           aria-label={t('settings.language')}
@@ -245,7 +222,7 @@ function LauncherSection() {
 
       <Row title={t('settings.downloadConcurrency')} hint={t('settings.downloadConcurrencyHint')}>
         <select
-          className={`${field} w-52`}
+          className={`${field} w-44`}
           value={settings.downloadConcurrency}
           onChange={(e) => void saveSettings({ downloadConcurrency: Number(e.target.value) as Settings['downloadConcurrency'] })}
           aria-label={t('settings.downloadConcurrency')}
@@ -259,7 +236,7 @@ function LauncherSection() {
       <Row
         title={t('settings.hardwareAcceleration')}
         hint={t('settings.hardwareAccelerationHint')}
-        note={restartRequired && <p className="text-xs text-tos-burgundy">{t('settings.restartRequired')}</p>}
+        note={restartRequired && <p className="text-[13px] text-tos-burgundy">{t('settings.restartRequired')}</p>}
       >
         <Toggle
           on={settings.hardwareAcceleration}
