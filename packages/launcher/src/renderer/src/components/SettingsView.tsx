@@ -125,29 +125,6 @@ function GameSection({ visit, onVisit, onLeave }: { visit: GameVisit; onVisit: (
         </button>
       </Row>
 
-      <Row title={t('settings.launchArgs')} hint={t('settings.launchArgsHint')}>
-        <input
-          className={`${field} w-44`}
-          defaultValue={settings.launchArgs}
-          onBlur={(e) => void saveSettings({ launchArgs: e.target.value })}
-          spellCheck={false}
-          aria-label={t('settings.launchArgs')}
-        />
-      </Row>
-
-      <Row title={t('settings.afterLaunch')} hint={t('settings.afterLaunchHint')}>
-        <select
-          className={`${field} w-44`}
-          value={settings.afterLaunch}
-          onChange={(e) => void saveSettings({ afterLaunch: e.target.value as Settings['afterLaunch'] })}
-          aria-label={t('settings.afterLaunch')}
-        >
-          <option value="quit">{t('settings.afterLaunch.quit')}</option>
-          <option value="minimize">{t('settings.afterLaunch.minimize')}</option>
-          <option value="stay">{t('settings.afterLaunch.stay')}</option>
-        </select>
-      </Row>
-
       <Row title={t('settings.allowOffline')} hint={t('settings.allowOfflineHint')}>
         <Toggle
           on={settings.allowOfflinePlay}
