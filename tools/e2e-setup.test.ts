@@ -26,7 +26,6 @@ describe('e2e-setup (fake game tree → release → local store)', () => {
     const m = await readCurrent()
     expect(m.build).toBe(1)
     expect(m.blobBaseUrl).toBe(`${url}objects/`)
-    expect(m.newsUrl).toBe(`${url}news/news.json`)
     const paths = m.files.map((f) => f.path)
     expect(paths).toContain('release/Yuka.exe')
     expect(paths).toContain('data/bg.ipf')
@@ -43,8 +42,9 @@ describe('e2e-setup (fake game tree → release → local store)', () => {
     // an empty game folder: the launcher must show the install panel, not "resume"
     expect(await readdir(sandboxPaths(base).gameDir)).toEqual([])
 
-    expect(JSON.parse(await readFile(join(sandboxPaths(base).storeDir, 'news', 'news.json'), 'utf8')).items.length).toBeGreaterThan(0)
+    expect(JSON.parse(await readFile(join(sandboxPaths(base).storeDir, 'news', 'news.json'), 'utf8')).posts.length).toBeGreaterThan(0)
     expect(result.manifestUrl).toBe(`${url}manifest.json`)
+    expect(result.newsUrl).toBe(`${url}news/news.json`)
     expect(result.build).toBe(1)
   })
 

@@ -1,45 +1,42 @@
 import { useTranslation } from 'react-i18next'
-import type { NewsItem } from '@yufa/shared'
-import { pickText } from '../i18n'
+import type { NewsPost } from '@yufa/shared'
 import { formatNewsDate } from '../lib/format'
 import { homeNews, orderNews } from '../lib/news'
 import { focusRing, monoLabel, textLink } from '../lib/ui'
 import { useLauncher } from '../store'
 
 /**
- * One item of the site's patch-note list: the date in mono in its own
- * column, the title in Philosopher (a link when the item has one), the pin
- * mark, the body under it. Home clamps the body to two lines; the News
- * view shows all of it.
+ * One post of the site's feed as a row of its patch-note list: the date in
+ * mono in its own column with the category under it, the title in
+ * Philosopher (a link to the article on the site), the pin mark, the
+ * excerpt under it. Home clamps the excerpt to two lines; the News view
+ * shows all of it. A category the launcher has no name for yet (the feed
+ * may grow one) shows its id.
  */
-function NewsRow({ item, lang, clamp }: { item: NewsItem; lang: string; clamp: boolean }) {
+function NewsRow({ post, lang, clamp }: { post: NewsPost; lang: string; clamp: boolean }) {
   const { t } = useTranslation()
-  const title = pickText(item.title, lang)
   return (
     <li className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-4 border-b border-tos-border py-3 last:border-0">
-      <time dateTime={item.date} className={`pt-[3px] ${monoLabel}`}>
-        {formatNewsDate(item.date, lang)}
-      </time>
+      <div className={`flex flex-col gap-1 pt-[3px] ${monoLabel}`}>
+        <time dateTime={new Date(post.publishedAt).toISOString()}>{formatNewsDate(post.publishedAt, lang)}</time>
+        <span className="text-tos-brown-muted">{t(`news.category.${post.category}`, post.category)}</span>
+      </div>
       <article className="flex min-w-0 flex-col gap-0.5">
         <h3 className="font-display text-base font-bold leading-[1.3] text-tos-brown">
-          {item.url ? (
-            <button
-              type="button"
-              onClick={() => void window.yufa.appOpenExternal(item.url!)}
-              className={`text-left transition-colors hover:text-tos-burgundy ${focusRing}`}
-            >
-              {title}
-            </button>
-          ) : (
-            title
-          )}
-          {item.pinned && (
+          <button
+            type="button"
+            onClick={() => void window.yufa.appOpenExternal(post.url)}
+            className={`text-left transition-colors hover:text-tos-burgundy ${focusRing}`}
+          >
+            {post.title}
+          </button>
+          {post.pinned && (
             <span className="ml-2 rounded bg-tos-tab-bg px-1.5 py-px align-[2px] font-body text-[10px] font-medium uppercase tracking-[0.05em] text-tos-orange-dark">
               {t('news.pinned')}
             </span>
           )}
         </h3>
-        <p className={`text-[13px] leading-[1.45] text-tos-brown-light ${clamp ? 'line-clamp-2' : ''}`}>{pickText(item.body, lang)}</p>
+        <p className={`text-[13px] leading-[1.45] text-tos-brown-light ${clamp ? 'line-clamp-2' : ''}`}>{post.excerpt}</p>
       </article>
     </li>
   )
@@ -55,7 +52,7 @@ export function NewsStaleBadge() {
 
 /**
  * The news on Home: a heading row with View all, then the first three
- * items, pinned first then newest. The list takes the height left under
+ * posts, pinned first then newest. The list takes the height left under
  * the headline and fades out at its foot, so a long day of warnings above
  * it never cuts a row in half.
  */
@@ -63,7 +60,7 @@ export function HomeNews({ onViewAll }: { onViewAll: () => void }) {
   const news = useLauncher((s) => s.news)
   const { t, i18n } = useTranslation()
   if (!news) return null
-  const items = homeNews(news.items)
+  const posts = homeNews(news.posts)
   return (
     <section aria-labelledby="home-news" className="mt-9 flex min-h-0 w-[450px] flex-1 flex-col">
       <div className="flex shrink-0 items-baseline justify-between border-b border-tos-border-dark pb-2">
@@ -77,12 +74,12 @@ export function HomeNews({ onViewAll }: { onViewAll: () => void }) {
           </button>
         </span>
       </div>
-      {items.length === 0 ? (
+      {posts.length === 0 ? (
         <p className="py-3 text-[13px] text-tos-brown-muted">{t('news.empty')}</p>
       ) : (
         <ul className="min-h-0 flex-1 overflow-hidden mask-b-from-[calc(100%-28px)]">
-          {items.map((item) => (
-            <NewsRow key={item.id} item={item} lang={i18n.language} clamp />
+          {posts.map((post) => (
+            <NewsRow key={post.id} post={post} lang={i18n.language} clamp />
           ))}
         </ul>
       )}
@@ -90,17 +87,17 @@ export function HomeNews({ onViewAll }: { onViewAll: () => void }) {
   )
 }
 
-/** The News view's list: every item, full bodies, scrolling. */
+/** The News view's list: the whole page, full excerpts, scrolling. */
 export function NewsList() {
   const news = useLauncher((s) => s.news)
   const { t, i18n } = useTranslation()
   if (!news) return null
-  const items = orderNews(news.items)
-  if (items.length === 0) return <p className="py-3 text-[13px] text-tos-brown-muted">{t('news.empty')}</p>
+  const posts = orderNews(news.posts)
+  if (posts.length === 0) return <p className="py-3 text-[13px] text-tos-brown-muted">{t('news.empty')}</p>
   return (
     <ul className="min-h-0 w-[600px] flex-1 overflow-y-auto pr-3">
-      {items.map((item) => (
-        <NewsRow key={item.id} item={item} lang={i18n.language} clamp={false} />
+      {posts.map((post) => (
+        <NewsRow key={post.id} post={post} lang={i18n.language} clamp={false} />
       ))}
     </ul>
   )

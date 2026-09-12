@@ -1,17 +1,22 @@
-import type { NewsItem } from '@yufa/shared'
+import type { NewsPost } from '@yufa/shared'
 
-/** How many cards the home row holds beside the community card; App's grid has that many card columns. */
-const HOME_CARD_COUNT = 3
+/** How many rows the home list holds under the headline. */
+const HOME_ROW_COUNT = 3
 
-/** The feed as the shell shows it: pinned items first, then the newest. The feed itself is not touched. */
-export function orderNews(items: readonly NewsItem[]): NewsItem[] {
-  return [...items].sort((a, b) => {
+/**
+ * The feed as the shell shows it: pinned posts first, then the newest, the
+ * higher id first when two share a moment (the site orders its list the same
+ * way). The feed itself is not touched.
+ */
+export function orderNews(posts: readonly NewsPost[]): NewsPost[] {
+  return [...posts].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
-    return b.date.localeCompare(a.date)
+    if (a.publishedAt !== b.publishedAt) return b.publishedAt - a.publishedAt
+    return b.id - a.id
   })
 }
 
-/** The home row: the first cards of the ordered feed. */
-export function homeNews(items: readonly NewsItem[]): NewsItem[] {
-  return orderNews(items).slice(0, HOME_CARD_COUNT)
+/** The home list: the first rows of the ordered feed. */
+export function homeNews(posts: readonly NewsPost[]): NewsPost[] {
+  return orderNews(posts).slice(0, HOME_ROW_COUNT)
 }

@@ -6,7 +6,7 @@ Launcher + sistema de publicação de patches para o servidor Yufa | ToS - Class
 
 - `packages/shared` — schemas do manifest e do Install Record (zod), `computePlan()` (núcleo puro do patcher: manifest + Install Record + scan local → baixar / semear / apagar), tipos de IPC.
 - `packages/launcher` — app Electron (electron-vite + React). UI do jogador: verificar → baixar → jogar.
-- `packages/publish-cli` — CLI do admin (`npm run yufa-publish`): release / patch / rollback / news / verify (`--mirror <pasta>` compara hashes com a pasta local) / gc (`--keep N` apaga Blobs que nenhum dos N Builds mais recentes nem o atual referencia; nunca apaga Manifests) / redist push (`--dir <pasta>` sobe os instaladores de runtime e escreve `redist/index.json` por último) / launcher.
+- `packages/publish-cli` — CLI do admin (`npm run yufa-publish`): release / patch / rollback / verify (`--mirror <pasta>` compara hashes com a pasta local) / gc (`--keep N` apaga Blobs que nenhum dos N Builds mais recentes nem o atual referencia; nunca apaga Manifests) / redist push (`--dir <pasta>` sobe os instaladores de runtime e escreve `redist/index.json` por último) / launcher.
 - `tools/dev-server.ts` — servidor estático local com suporte a HTTP Range para testes E2E.
 - `tools/fetch-dxvk.ts` — baixa o archive oficial do DXVK, confere `x32/d3d9.dll` contra o hash fixado em `packages/shared/src/dxvk.ts` e o deixa em `packages/launcher/build/dxvk/` para o `dist`. Ver [Compatibility fix (DXVK)](#compatibility-fix-dxvk).
 - `tools/e2e-setup.ts` / `tools/e2e-smoke.ts` — sandbox E2E local: árvore de jogo falsa publicada como Build, e o ensaio automático (instalar → ligar a correção AMD → atualizar → rollback → desligar) com o launcher empacotado; `tools/e2e-checks.ts` guarda as conferências da pasta do jogo. Ver [Sandbox E2E local](#sandbox-e2e-local).
@@ -39,7 +39,7 @@ npm run dev-server -- --root ./e2e-sandbox/store --port 8787
 O sandbox contém:
 
 - `tree/` — a pasta de jogo falsa de onde os Builds saem (o Mirror, no vocabulário do `CONTEXT.md`): `data\`, `patch\` (2 archives de 3 MB por padrão; `--count`, `--size`), `release\` com `Yuka.exe` de mentira, `a.dll`, `uilayout.xml` (Seed-once) **e** o lixo que o hard guard descarta (`user.xml`, `release.revision.txt`, `screenshot\`, `log_Client\`) mais `release\patch\` (excluído pela config). Confira no `store/manifest.json` que nada disso foi publicado.
-- `store/` — o layout exato do bucket (`manifest.json`, `manifests/`, `objects/`, `news/`).
+- `store/` — o layout exato do bucket (`manifest.json`, `manifests/`, `objects/`), mais `news/news.json`: uma página do feed de notícias no formato do site, que o launcher lê por `YUFA_NEWS_URL` no lugar da API real.
 - `game/` — pasta **vazia** para o launcher instalar.
 - `publish.config.json` — a config do CLI apontando para o dev-server, para rollback/patch/verify à mão.
 
@@ -47,7 +47,8 @@ Aponte o launcher (dev ou empacotado) para o sandbox com variáveis de ambiente:
 
 | Variável | Efeito |
 | --- | --- |
-| `YUFA_MANIFEST_URL` | `http://127.0.0.1:8787/manifest.json`; news e `redist/index.json` derivam dela |
+| `YUFA_MANIFEST_URL` | `http://127.0.0.1:8787/manifest.json`; `redist/index.json` deriva dela |
+| `YUFA_NEWS_URL` | o feed de notícias no lugar de `www.tosclassic.com/api/news` (o sandbox serve `news/news.json`, uma página no formato do site) |
 | `YUFA_GAME_DIR` | a pasta do jogo (vazia → painel de instalação) |
 | `YUFA_USERDATA` | settings e logs isolados por execução |
 | `YUFA_AUTO=update` / `play` | instala/atualiza sozinho; `play` também clica Jogar |
@@ -87,12 +88,16 @@ A janela é 1200 por 700 (menor quando a área de trabalho não comporta; issue 
 
 - `TopBar`: a faixa de 68 px, sem fundo, que arrasta a janela: o logo, os links em Philosopher 700 15 px (Início e Notícias trocam a tela, o ativo fica laranja com sublinhado; Site, Database, Planner e Discord abrem no navegador via `appOpenExternal`, endereços em `packages/shared/src/links.ts`, subpath `@yufa/shared/links`), o aviso de atualização do launcher (`UpdateNotice`: baixando N% ou pronta com Reiniciar agora, no meio vazio da faixa, nada flutua sobre a página) e, à direita, Configurações, minimizar e fechar. A engrenagem abre a tela de Configurações e aparece pressionada enquanto ela está aberta; apertar de novo volta ao Início.
 - `HomeView` (`src/renderer/src/components/HomeView.tsx`): a coluna da esquerda. O título em duas linhas no vinho do site (Philosopher 54 px), o subtítulo, depois o encaixe do `InstallPanel`, do prompt AMD (`CompatibilityFixPrompt`, agora um bloco em linha e não um modal), do `RuntimeWarning`, do `CompatibilityFixWarning` e do `ErrorBanner`, e então a linha com o `PlayButton` (o `tos-primary` do site; fora dele, o laranja só aparece no link ativo da navegação e na marca de fixado, como no site) e o `StatusArea` (uma linha em palavras e, embaixo, o número que vai com ela em mono: a revisão, o tamanho, a velocidade; Cancelar no fim da primeira linha e uma barra de um pixel enquanto baixa). O subtítulo cede o lugar ao que ocupa o encaixe (`subtitleShown` em `src/renderer/src/lib/shell.ts`, mais o prompt aberto), para o Jogar não sair do lugar. Cada aviso tem seu predicado no mesmo módulo, usado pelo componente e pela tela. Os avisos são um filete à esquerda com o texto (`Notice`): vinho para erro, marrom para aviso; sem cartão.
-- Abaixo, as notícias como a lista de patch notes do site (`HomeNews` em `NewsList.tsx`): cabeçalho Notícias com Ver todas, três itens (fixados primeiro, depois os mais novos, `orderNews` em `src/renderer/src/lib/news.ts`), cada um com a data em mono maiúsculo (`01 JUL 2026`, `formatNewsDate` em `lib/format.ts`), o título em Philosopher (link quando há URL), a marca de fixado e o corpo em até duas linhas. A lista ocupa a altura que sobra sob o título e some em degradê no pé, em vez de cortar um item pela metade quando os avisos empurram tudo para baixo. O selo de notícias salvas (feed do cache) fica ao lado de Ver todas e do título da tela de Notícias.
+- Abaixo, as notícias como a lista de patch notes do site (`HomeNews` em `NewsList.tsx`): cabeçalho Notícias com Ver todas, três itens (fixados primeiro, depois os mais novos, `orderNews` em `src/renderer/src/lib/news.ts`), cada um com a data em mono maiúsculo (`01 JUL 2026`, `formatNewsDate` em `lib/format.ts`, o dia em UTC como o site imprime) e a categoria embaixo dela, o título em Philosopher (abre a matéria no site), a marca de fixado e o resumo em até duas linhas. A lista ocupa a altura que sobra sob o título e some em degradê no pé, em vez de cortar um item pela metade quando os avisos empurram tudo para baixo. O selo de notícias salvas (feed do cache) fica ao lado de Ver todas e do título da tela de Notícias.
 - `DiscordLine`, embaixo à direita, sob a deusa, em todas as telas: um ponto verde com quem está online (`community:get`) e o botão Entrar em azul do Discord, com a marca do Discord antes da palavra; sem contagem, só o nome do lugar. A contagem é pedida uma vez ao abrir e de novo a cada volta ao Início, nunca por timer.
-- `NewsView`: o título Notícias e a lista completa com os corpos inteiros, rolando na coluna de 600 px.
+- `NewsView`: o título Notícias e a página inteira do feed com os resumos completos, rolando na coluna de 600 px.
 - `SettingsView`: ver [Configurações](#configurações).
 
 Os ajudantes puros (`orderNews`, `homeNews`, `shellViewFromQuery`, `installPanelUp`, `subtitleShown`, `formatNewsDate`) têm testes em `packages/launcher/test`. No dev harness do renderer, além dos parâmetros das seções abaixo: `?view=news` abre a tela de Notícias, `&news=empty` mostra um feed vazio, `&stalenews` põe o selo e `&discord=off` derruba a contagem do Discord. As classes que as telas compartilham (campo, botão secundário, link, rótulo mono, anel de foco) ficam em `src/renderer/src/lib/ui.ts`.
+
+## Notícias
+
+As notícias vêm do site: `GET https://www.tosclassic.com/api/news?limit=50`, a API pública do projeto `tos-classic` (contrato v1, congelado na ADR 0007 de lá; a decisão de ler dali e não do bucket é a [ADR 0004](docs/adr/0004-news-from-the-site-api.md) daqui). Uma página de posts sem corpo: `id`, `slug`, `title`, `category`, `excerpt`, `coverImage`, `pinned`, `publishedAt` (epoch ms) e a `url` da matéria no site; o launcher mostra título, categoria, resumo e data, e o título abre a matéria no navegador. O schema em `packages/shared/src/news.ts` guarda só esses campos e ignora o resto (o contrato só cresce), com a categoria como texto livre: uma categoria nova aparece pelo id até ganhar nome nos locales (`news.category.*`). O processo principal (`src/main/news.ts`, `news:get`) busca com 10 s de timeout, salva a página em `news-cache.json` na pasta de dados e, quando o site não responde ou responde fora do contrato, devolve a última salva com `stale: true` (o selo de notícias salvas), ou uma lista vazia. Sem cache-buster: o site guarda o feed na borda por alguns minutos de propósito e o renova ao publicar. Não há mais `news.json` no bucket, `newsUrl` no manifest nem `news push` no CLI; quem publica notícia é o admin do site.
 
 ## Presença no Discord
 

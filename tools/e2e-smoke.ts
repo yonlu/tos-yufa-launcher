@@ -76,6 +76,7 @@ async function runLauncher(name: string, env: Record<string, string>, delayMs: n
       env: {
         ...process.env,
         YUFA_MANIFEST_URL: setup.manifestUrl,
+        YUFA_NEWS_URL: setup.newsUrl,
         YUFA_GAME_DIR: paths.gameDir,
         YUFA_USERDATA: userData,
         YUFA_SCREENSHOT: shot,

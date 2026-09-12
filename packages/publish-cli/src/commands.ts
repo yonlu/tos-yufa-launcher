@@ -6,7 +6,6 @@ import {
   DIRECTX_PAYLOAD_CAB_RE,
   manifestSchema,
   MANIFEST_SCHEMA_VERSION,
-  newsFeedSchema,
   parsePatchFileName,
   PATCH_DIR,
   REDIST_INDEX_FILE,
@@ -114,7 +113,6 @@ async function publishBuild(ctx: Ctx, current: Manifest | null, spec: BuildSpec)
     generatedAt: new Date().toISOString(),
     minLauncherVersion: spec.minLauncherVersion,
     blobBaseUrl: ctx.cfg.publicBaseUrl + ctx.cfg.objectsPrefix,
-    newsUrl: ctx.cfg.publicBaseUrl + ctx.cfg.newsKey,
     revision: deriveRevision(files),
     files,
   }
@@ -250,15 +248,6 @@ export async function rollback(ctx: Ctx, build: number): Promise<Manifest> {
   return manifest
 }
 
-export async function newsPush(ctx: Ctx, filePath: string): Promise<void> {
-  const feed = newsFeedSchema.parse(JSON.parse(await fs.readFile(filePath, 'utf8')))
-  await ctx.store.putText(ctx.cfg.newsKey, JSON.stringify(feed, null, 2), {
-    contentType: CONTENT_TYPES.json,
-    cacheControl: CACHE.none,
-  })
-  logger(ctx)(`news feed published (${feed.items.length} item(s)).`)
-}
-
 export interface VerifyResult {
   ok: boolean
   problems: string[]
@@ -352,8 +341,6 @@ function assertBlobPrefixIsolated(cfg: PublishConfig): void {
   const others: [string, string][] = [
     ['manifestKey', cfg.manifestKey],
     ['manifestsPrefix', cfg.manifestsPrefix],
-    ['newsKey', cfg.newsKey],
-    ['newsImagesPrefix', cfg.newsImagesPrefix],
     ['launcherPrefix', cfg.launcherPrefix],
     ['redistPrefix', cfg.redistPrefix],
   ]

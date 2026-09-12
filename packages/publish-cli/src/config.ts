@@ -28,8 +28,6 @@ const configSchema = z.object({
   manifestsPrefix: z.string().endsWith('/').default('manifests/'),
   objectsPrefix: z.string().endsWith('/').default('objects/'),
   redistPrefix: z.string().endsWith('/').default('redist/'),
-  newsKey: z.string().min(1).default('news/news.json'),
-  newsImagesPrefix: z.string().endsWith('/').default('news/img/'),
   launcherPrefix: z.string().endsWith('/').default('launcher/'),
   /**
    * Globs, game-relative with forward slashes: `*`/`?` stay inside one path

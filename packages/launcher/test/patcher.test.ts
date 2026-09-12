@@ -65,8 +65,6 @@ beforeEach(async () => {
     manifestsPrefix: 'manifests/',
     objectsPrefix: 'objects/',
     redistPrefix: 'redist/',
-    newsKey: 'news/news.json',
-    newsImagesPrefix: 'news/img/',
     launcherPrefix: 'launcher/',
     excludes: [...DEFAULT_EXCLUDES],
     includes: [],

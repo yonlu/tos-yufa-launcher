@@ -1,4 +1,4 @@
-import type { NewsItem } from './manifest'
+import type { NewsPost } from './news'
 import type { RedistRuntime } from './redist'
 
 /** Channel names shared by main, preload and renderer. */
@@ -214,8 +214,12 @@ export interface UpdaterStatusEvent {
   percent?: number
 }
 
+/**
+ * What the news list shows: one page of the site's feed, or the last page the
+ * launcher saved when the site does not answer (`stale`), or nothing.
+ */
 export interface NewsResult {
-  items: NewsItem[]
+  posts: NewsPost[]
   stale: boolean
 }
 

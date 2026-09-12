@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   deriveRevision,
   manifestSchema,
-  newsFeedSchema,
   parsePatchFileName,
   patchArchiveRevision,
   patchFileName,
@@ -22,7 +21,6 @@ function validManifest(overrides: Record<string, unknown> = {}) {
     generatedAt: '2026-09-05T12:00:00.000Z',
     minLauncherVersion: '1.0.0',
     blobBaseUrl: 'https://patch.example.com/objects/',
-    newsUrl: 'https://patch.example.com/news/news.json',
     revision: 1121001,
     files: [
       file('data/bg_hi.ipf'),
@@ -114,30 +112,5 @@ describe('manifestSchema (version 2)', () => {
 
   it('rejects a non-positive build', () => {
     expect(manifestSchema.safeParse(validManifest({ build: 0 })).success).toBe(false)
-  })
-})
-
-describe('newsFeedSchema', () => {
-  it('accepts a valid feed and defaults pinned to false', () => {
-    const parsed = newsFeedSchema.parse({
-      schemaVersion: 1,
-      items: [
-        {
-          id: 'x',
-          date: '2026-07-01',
-          title: { 'pt-BR': 'Olá', en: 'Hello' },
-          body: { 'pt-BR': 'corpo', en: 'body' },
-        },
-      ],
-    })
-    expect(parsed.items[0]!.pinned).toBe(false)
-  })
-
-  it('rejects bad dates', () => {
-    const feed = {
-      schemaVersion: 1,
-      items: [{ id: 'x', date: '01/07/2026', title: { en: 't' }, body: { en: 'b' } }],
-    }
-    expect(newsFeedSchema.safeParse(feed).success).toBe(false)
   })
 })

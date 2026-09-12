@@ -14,8 +14,3 @@ void i18n.use(initReactI18next).init({
 })
 
 export default i18n
-
-/** Picks the best language variant from a { lang: text } map. */
-export function pickText(loc: Record<string, string>, lang: string): string {
-  return loc[lang] ?? loc['en'] ?? loc['pt-BR'] ?? Object.values(loc)[0] ?? ''
-}

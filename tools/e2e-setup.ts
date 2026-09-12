@@ -28,6 +28,8 @@ import { DEFAULT_STAGE_DIR, defaultCacheDir, fetchDxvk } from './fetch-dxvk'
  */
 
 export const BASE_REVISION = 1116000
+/** Where the sandbox keeps its page of the news feed, under the store like everything else the dev server serves. */
+const NEWS_KEY = 'news/news.json'
 /** The Managed File `--bump` rewrites; any small non-archive file will do. */
 export const BUMPED_FILE = 'release/a.dll'
 
@@ -75,6 +77,8 @@ export interface BuildSandboxOptions extends SandboxOptions {
 export interface SandboxResult {
   build: number
   manifestUrl: string
+  /** A page of the site's news feed, in the feed's own shape, served next to the store (YUFA_NEWS_URL). */
+  newsUrl: string
   paths: SandboxPaths
 }
 
@@ -94,8 +98,6 @@ function sandboxConfig(paths: SandboxPaths, url: string): PublishConfig {
     manifestsPrefix: 'manifests/',
     objectsPrefix: 'objects/',
     redistPrefix: 'redist/',
-    newsKey: 'news/news.json',
-    newsImagesPrefix: 'news/img/',
     launcherPrefix: 'launcher/',
     excludes: [...DEFAULT_EXCLUDES],
     includes: [...DEFAULT_INCLUDES],
@@ -145,32 +147,41 @@ export async function buildSandbox(opts: BuildSandboxOptions): Promise<SandboxRe
 
   const manifest = await release(ctx, { dir: treeDir, label: 'e2e' })
 
+  // the site's feed, contract v1, as a static page: what the launcher would get from tosclassic.com/api/news
   await ctx.store.putText(
-    'news/news.json',
+    NEWS_KEY,
     JSON.stringify({
-      schemaVersion: 1,
-      items: [
+      posts: [
         {
-          id: 'e2e-1',
-          date: '2026-07-01',
+          id: 2,
+          slug: 'e2e-test-environment',
+          title: 'Ambiente de teste E2E',
+          category: 'announcement',
+          excerpt: 'Este manifest é servido pelo dev-server local. Instale, atualize e clique em Jogar.',
+          coverImage: null,
           pinned: true,
-          title: { 'pt-BR': 'Ambiente de teste E2E', en: 'E2E test environment' },
-          body: {
-            'pt-BR': 'Este manifest é servido pelo dev-server local. Instale, atualize e clique em Jogar.',
-            en: 'This manifest is served by the local dev-server. Install, update and hit Play.',
-          },
+          publishedAt: Date.UTC(2026, 6, 1),
+          url: `${opts.url}news/e2e-test-environment`,
         },
         {
-          id: 'e2e-2',
-          date: '2026-06-28',
-          title: { 'pt-BR': 'Segunda notícia', en: 'Second news item' },
-          body: { 'pt-BR': 'Um card comum, sem destaque.', en: 'A regular, unpinned card.' },
+          id: 1,
+          slug: 'second-news-item',
+          title: 'Segunda notícia',
+          category: 'event',
+          excerpt: 'Um item comum, sem destaque.',
+          coverImage: null,
+          pinned: false,
+          publishedAt: Date.UTC(2026, 5, 28),
+          url: `${opts.url}news/second-news-item`,
         },
       ],
+      page: 1,
+      pageCount: 1,
+      totalCount: 2,
     }),
   )
 
-  return { build: manifest.build, manifestUrl: `${opts.url}manifest.json`, paths }
+  return { build: manifest.build, manifestUrl: `${opts.url}manifest.json`, newsUrl: `${opts.url}${NEWS_KEY}`, paths }
 }
 
 /**
@@ -197,7 +208,14 @@ export async function bumpSandbox(opts: SandboxOptions): Promise<BumpResult> {
   await put(paths.treeDir, 'release/release.revision.txt', String(revision))
 
   const manifest = await release(ctx, { dir: paths.treeDir, label: `e2e-bump-${revision}` })
-  return { build: manifest.build, manifestUrl: `${opts.url}manifest.json`, paths, changed: BUMPED_FILE, added }
+  return {
+    build: manifest.build,
+    manifestUrl: `${opts.url}manifest.json`,
+    newsUrl: `${opts.url}${NEWS_KEY}`,
+    paths,
+    changed: BUMPED_FILE,
+    added,
+  }
 }
 
 // CLI mode

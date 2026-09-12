@@ -21,9 +21,9 @@ import { fetchDiscordCounts } from './community'
 import {
   DEFAULT_INSTALL_DIR,
   DISCORD_INVITE_CODE,
-  FALLBACK_NEWS_URL,
   LAUNCHER_FEED_URL,
   MANIFEST_URL,
+  NEWS_API_URL,
   REDIST_INDEX_URL,
 } from './constants'
 import { Dxvk } from './dxvk'
@@ -277,10 +277,7 @@ async function bootstrap(): Promise<void> {
     void patcher.installOrResume()
   })
 
-  ipcMain.handle(IPC.newsGet, () => {
-    const newsUrl = patcher.loadedManifest?.newsUrl ?? FALLBACK_NEWS_URL
-    return fetchNews(newsUrl, join(app.getPath('userData'), 'news-cache.json'), electronFetch)
-  })
+  ipcMain.handle(IPC.newsGet, () => fetchNews(NEWS_API_URL, join(app.getPath('userData'), 'news-cache.json'), electronFetch))
 
   ipcMain.handle(IPC.communityGet, () => fetchDiscordCounts(DISCORD_INVITE_CODE, electronFetch))
 

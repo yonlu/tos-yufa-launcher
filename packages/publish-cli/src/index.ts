@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 import { Command } from 'commander'
 import { loadConfig } from './config'
-import { gc, newsPush, patch, publishLauncher, redistPush, release, rollback, verify, type Ctx } from './commands'
+import { gc, patch, publishLauncher, redistPush, release, rollback, verify, type Ctx } from './commands'
 import { DryRunStore, LocalDirStore, R2Store, type PublishStore } from './store'
 
 const program = new Command()
 
 program
   .name('yufa-publish')
-  .description('Publishes game builds, patches, news and launcher builds for Yufa ToS Classic')
+  .description('Publishes game builds, patches, runtimes and launcher builds for Yufa ToS Classic')
   .option('--config <path>', 'path to publish.config.json (default: search upward from cwd)')
   .option('--local-out <dir>', 'write to a local directory instead of R2')
   .option('--dry-run', 'log what would be written without writing')
@@ -46,15 +46,6 @@ program
   .argument('<build>')
   .action(async (build: string) => {
     await rollback(buildCtx(), Number.parseInt(build, 10))
-  })
-
-const news = program.command('news').description('manage the launcher news feed')
-news
-  .command('push')
-  .description('validate and publish news.json')
-  .option('--file <path>', 'news feed file', 'news/news.json')
-  .action(async (o: { file: string }) => {
-    await newsPush(buildCtx(), o.file)
   })
 
 program

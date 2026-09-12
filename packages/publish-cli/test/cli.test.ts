@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { manifestSchema, patchFileName, redistIndexSchema, type Manifest } from '@yufa/shared'
-import { gc, newsPush, patch, publishLauncher, redistPush, release, rollback, verify, type Ctx } from '../src/commands'
+import { gc, patch, publishLauncher, redistPush, release, rollback, verify, type Ctx } from '../src/commands'
 import { DEFAULT_EXCLUDES, DEFAULT_SEED_ONCE, type PublishConfig } from '../src/config'
 import { sha256File } from '../src/hash'
 import { DryRunStore, LocalDirStore } from '../src/store'
@@ -92,8 +92,6 @@ beforeEach(async () => {
     manifestsPrefix: 'manifests/',
     objectsPrefix: 'objects/',
     redistPrefix: 'redist/',
-    newsKey: 'news/news.json',
-    newsImagesPrefix: 'news/img/',
     launcherPrefix: 'launcher/',
     excludes: [...DEFAULT_EXCLUDES],
     includes: [],
@@ -113,7 +111,6 @@ describe('release', () => {
     expect(m.build).toBe(1)
     expect(m.revision).toBe(1116001)
     expect(m.blobBaseUrl).toBe('https://patch.test/objects/')
-    expect(m.newsUrl).toBe('https://patch.test/news/news.json')
     expect(m.files).toEqual([
       { path: 'data/bg.ipf', size: 256, sha256: sha(t.bg.content), class: 'managed' },
       { path: `patch/${patchFileName(1116001)}`, size: 256, sha256: sha(t.arch.content), class: 'managed' },
@@ -404,28 +401,6 @@ describe('rollback', () => {
   })
 })
 
-describe('news', () => {
-  it('validates and publishes a feed', async () => {
-    const file = join(staging, 'news.json')
-    await writeFile(
-      file,
-      JSON.stringify({
-        schemaVersion: 1,
-        items: [{ id: 'a', date: '2026-07-01', title: { en: 't' }, body: { en: 'b' } }],
-      }),
-    )
-    await newsPush(ctx, file)
-    const stored = JSON.parse(await readFile(join(out, 'news', 'news.json'), 'utf8'))
-    expect(stored.items).toHaveLength(1)
-  })
-
-  it('rejects an invalid feed', async () => {
-    const file = join(staging, 'news.json')
-    await writeFile(file, JSON.stringify({ schemaVersion: 1, items: [{ id: '', date: 'bad' }] }))
-    await expect(newsPush(ctx, file)).rejects.toThrow()
-  })
-})
-
 describe('verify', () => {
   it('passes on a consistent store', async () => {
     const t = await makeGameTree()
@@ -563,13 +538,13 @@ describe('gc', () => {
     expect(store.deleted).toEqual([])
   })
 
-  it('refuses a config that puts Manifests, news or launcher files under the Blob prefix', async () => {
+  it('refuses a config that puts Manifests, runtimes or launcher files under the Blob prefix', async () => {
     const t = await makeGameTree()
     await release(ctx, { dir: t.game })
     for (const bad of [
       { manifestKey: 'objects/manifest.json' },
       { manifestsPrefix: 'objects/manifests/' },
-      { newsKey: 'objects/news.json' },
+      { redistPrefix: 'objects/redist/' },
       { launcherPrefix: 'objects/launcher/' },
     ]) {
       await expect(gc({ ...ctx, cfg: { ...cfg, ...bad } }, { keep: 1 })).rejects.toThrow(/objectsPrefix/)

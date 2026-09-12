@@ -260,37 +260,44 @@ export function installMockIfNeeded(): void {
     },
     newsGet: async () => ({
       stale: params.has('stalenews'),
-      items: params.get('news') === 'empty' ? [] : [
-        {
-          id: '1',
-          date: '2026-07-01',
-          pinned: true,
-          title: { 'pt-BR': 'Novo launcher!', en: 'New launcher!' },
-          body: {
-            'pt-BR': 'Bem-vindo ao novo launcher do Yufa ToS Classic. Atualizações agora são automáticas.',
-            en: 'Welcome to the new Yufa ToS Classic launcher. Updates are now automatic.',
-          },
-          url: 'https://example.com',
-        },
-        {
-          id: '2',
-          date: '2026-06-28',
-          pinned: false,
-          title: { 'pt-BR': 'Evento de EXP em dobro', en: 'Double EXP event' },
-          body: { 'pt-BR': 'Até 07/07, EXP em dobro em todos os mapas!', en: 'Until Jul 7, double EXP on all maps!' },
-        },
-        {
-          id: '3',
-          date: '2026-06-20',
-          pinned: false,
-          title: { 'pt-BR': 'Manutenção concluída', en: 'Maintenance complete' },
-          body: {
-            'pt-BR': 'O servidor voltou com a correção do lag em Fedimian e o balanceamento de classes da semana.',
-            en: 'The server is back with the Fedimian lag fix and this week\'s class balance changes.',
-          },
-          url: 'https://example.com/maintenance',
-        },
-      ],
+      posts:
+        params.get('news') === 'empty'
+          ? []
+          : [
+              {
+                id: 3,
+                slug: 'novo-launcher',
+                title: 'Novo launcher!',
+                category: 'announcement',
+                excerpt: 'Bem-vindo ao novo launcher do Yufa ToS Classic. Atualizações agora são automáticas.',
+                coverImage: null,
+                pinned: true,
+                publishedAt: Date.UTC(2026, 6, 1),
+                url: 'https://tosclassic.com/news/novo-launcher',
+              },
+              {
+                id: 2,
+                slug: 'evento-exp-em-dobro',
+                title: 'Evento de EXP em dobro',
+                category: 'event',
+                excerpt: 'Até 07/07, EXP em dobro em todos os mapas!',
+                coverImage: null,
+                pinned: false,
+                publishedAt: Date.UTC(2026, 5, 28),
+                url: 'https://tosclassic.com/news/evento-exp-em-dobro',
+              },
+              {
+                id: 1,
+                slug: 'manutencao-concluida',
+                title: 'Manutenção concluída',
+                category: 'maintenance',
+                excerpt: 'O servidor voltou com a correção do lag em Fedimian e o balanceamento de classes da semana.',
+                coverImage: null,
+                pinned: false,
+                publishedAt: Date.UTC(2026, 5, 20),
+                url: 'https://tosclassic.com/news/manutencao-concluida',
+              },
+            ],
     }),
     communityGet: async () => (params.get('discord') === 'off' ? null : { online: 87, members: 2431 }),
     appGetInfo: async () => ({ version: '1.0.0-mock', gpu }),

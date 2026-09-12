@@ -7,7 +7,6 @@ import { z } from 'zod'
 export const PATCH_FILE_RE = /^(\d+)_001001\.ipf$/
 
 export const MANIFEST_SCHEMA_VERSION = 2
-export const NEWS_SCHEMA_VERSION = 1
 
 /** Returns the revision encoded in a patch filename, or null if it is not a patch file. */
 export function parsePatchFileName(name: string): number | null {
@@ -85,7 +84,6 @@ export const manifestSchema = z
     generatedAt: z.string(),
     minLauncherVersion: z.string(),
     blobBaseUrl: z.string().url(),
-    newsUrl: z.string().url(),
     revision: z.number().int().nonnegative(),
     files: z.array(manifestFileSchema),
   })
@@ -111,24 +109,3 @@ export const manifestSchema = z
 export type FileClass = z.infer<typeof fileClassSchema>
 export type ManifestFile = z.infer<typeof manifestFileSchema>
 export type Manifest = z.infer<typeof manifestSchema>
-
-/** lang tag ('pt-BR', 'en', …) → text */
-export const localizedTextSchema = z.record(z.string(), z.string().min(1))
-
-export const newsItemSchema = z.object({
-  id: z.string().min(1),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be YYYY-MM-DD'),
-  pinned: z.boolean().optional().default(false),
-  title: localizedTextSchema,
-  body: localizedTextSchema,
-  url: z.string().url().optional(),
-  image: z.string().url().optional(),
-})
-
-export const newsFeedSchema = z.object({
-  schemaVersion: z.literal(NEWS_SCHEMA_VERSION),
-  items: z.array(newsItemSchema).max(50),
-})
-
-export type NewsItem = z.infer<typeof newsItemSchema>
-export type NewsFeed = z.infer<typeof newsFeedSchema>

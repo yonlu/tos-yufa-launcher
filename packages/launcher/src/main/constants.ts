@@ -8,7 +8,11 @@ export const MANIFEST_URL =
 export const LAUNCHER_FEED_URL =
   process.env['YUFA_LAUNCHER_FEED_URL'] ?? 'https://patch.tosclassic.com/launcher/'
 
-export const FALLBACK_NEWS_URL = MANIFEST_URL.replace(/manifest\.json.*$/, 'news/news.json')
+/**
+ * The site's news feed (contract v1, ADR 0004). On the www host on purpose:
+ * the bare one answers with a redirect, and this is fetched on every start.
+ */
+export const NEWS_API_URL = process.env['YUFA_NEWS_URL'] ?? 'https://www.tosclassic.com/api/news'
 
 /** The Redistributable index next to the manifest; installer URLs are resolved relative to it. */
 export const REDIST_INDEX_URL =

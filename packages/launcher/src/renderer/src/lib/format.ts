@@ -15,19 +15,22 @@ export function formatEta(seconds: number): string {
  * A news date the way the site's patch-note list writes it: `01 jul 2026`,
  * the month abbreviated in the launcher's language and stripped of the
  * period some locales add (pt-BR gives `jul.`). The list sets it in
- * uppercase mono. Anything that is not a `YYYY-MM-DD` date is shown as is.
+ * uppercase mono. The feed gives the moment as epoch ms; the day is taken
+ * in UTC, as the site prints it, so both show the same date. A number that
+ * is not a moment shows nothing.
  */
-export function formatNewsDate(iso: string, lang: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
-  if (!match) return iso
-  const [, year, month, day] = match
+export function formatNewsDate(publishedAt: number, lang: string): string {
+  const date = new Date(publishedAt)
+  if (Number.isNaN(date.getTime())) return ''
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  const year = date.getUTCFullYear()
+  const month = (locale: string) =>
+    new Intl.DateTimeFormat(locale, { month: 'short', timeZone: 'UTC' }).format(date).replace(/\./g, '').toLowerCase()
+  let name: string
   try {
-    const name = new Intl.DateTimeFormat(lang, { month: 'short' })
-      .format(new Date(Number(year), Number(month) - 1, 1))
-      .replace(/\./g, '')
-      .toLowerCase()
-    return `${day} ${name} ${year}`
+    name = month(lang)
   } catch {
-    return iso
+    name = month('en')
   }
+  return `${day} ${name} ${year}`
 }
