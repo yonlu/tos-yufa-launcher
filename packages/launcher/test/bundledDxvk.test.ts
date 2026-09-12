@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DXVK_FILE, DXVK_LICENSE_FILE } from '@yufa/shared'
 import { resolveBundledDxvk } from '../src/main/bundledDxvk'
@@ -12,9 +12,12 @@ describe('resolveBundledDxvk (where the Compatibility fix lives in each kind of 
   })
 
   it('dev: the staged build/dxvk folder, resolved from out/main', () => {
-    const mainDir = join('/repo', 'packages', 'launcher', 'out', 'main')
+    // Rooted through resolve so the fixture is absolute the way this platform spells absolute:
+    // the function resolves, and on Windows that prepends the current drive to a bare \repo.
+    const repo = resolve('/repo')
+    const mainDir = join(repo, 'packages', 'launcher', 'out', 'main')
     const r = resolveBundledDxvk({ isPackaged: false, resourcesPath: '/electron/resources', mainDir })
-    expect(r.dir).toBe(join('/repo', 'packages', 'launcher', 'build', 'dxvk'))
+    expect(r.dir).toBe(join(repo, 'packages', 'launcher', 'build', 'dxvk'))
     expect(r.dll).toBe(join(r.dir, DXVK_FILE))
   })
 })
