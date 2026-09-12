@@ -47,6 +47,16 @@ touch a file the launcher did not put there.
   deleted or quarantined file comes back and a pin bump in a launcher
   release upgrades the installed file. Both operations refuse while the game
   is running.
+- The one-time prompt is raised only where the game will actually render on
+  AMD, not merely where an AMD adapter is listed. Detection reads two of
+  Chromium's GPU lists: `basic` for the inventory, which names every adapter
+  but flags none of them active, and `complete` for the adapter being
+  rendered on. Where `complete` names no real adapter — hardware
+  acceleration off puts Chromium on Microsoft's software renderer, which
+  reports no hardware at all — the answer is unknown, and the prompt is
+  raised only if every real adapter in the machine is AMD. The switch in
+  Settings is offered on every machine regardless, and names the AMD adapter
+  whenever one is listed.
 - No Build may ever ship `release/d3d9.dll`: the path joins the publisher's
   hard guard. The patcher needs no other knowledge of the fix, because the
   plan reads only Manifest paths and deletes only Install Record paths.
@@ -54,7 +64,14 @@ touch a file the launcher did not put there.
 ## Consequences
 
 - The launcher download grows by the DLL (a few MB compressed). Every
-  player carries it; only AMD players are asked to use it.
+  player carries it; only players rendering on AMD are asked to use it.
+- A hybrid machine that runs the launcher on one chip and the game on an AMD
+  one is never asked. That is the trade for not asking the far larger group
+  whose CPU carries integrated AMD graphics beside the card the game uses —
+  every AM5 desktop with a discrete card. Both reach the fix by hand.
+- The complete GPU probe costs roughly 150 ms at startup, inside the existing
+  probe timeout, and is optional: without it the adapters are still listed and
+  the switch still works, only the prompt stays quiet.
 - A new DXVK version is a launcher release: bump the pin, keep the old pin in
   the previous list so disable and upgrade still recognise the old file.
 - A player who hand-installed ReShade or DXVK keeps their file; the switch

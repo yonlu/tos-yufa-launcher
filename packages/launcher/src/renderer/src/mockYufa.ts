@@ -58,19 +58,29 @@ export function installMockIfNeeded(): void {
   /** What this "process" started with: the real main compares every save against it. */
   const bootHardwareAcceleration = settings.hardwareAcceleration
 
-  /** ?amd=1 puts a Radeon next to the integrated adapter, the hybrid-laptop case the prompt exists for. */
-  const gpu: GpuDetection = params.has('amd')
-    ? {
-        amdDetected: true,
-        adapters: [
-          { vendorId: '0x8086', deviceId: '0x9a49', active: true, amd: false, name: 'Intel(R) Iris(R) Xe Graphics' },
-          { vendorId: '0x1002', deviceId: '0x73df', active: false, amd: true, name: 'AMD Radeon RX 6700 XT' },
-        ],
-      }
-    : {
-        amdDetected: false,
-        adapters: [{ vendorId: '0x10de', deviceId: '0x2484', active: true, amd: false, name: 'NVIDIA GeForce RTX 3070' }],
-      }
+  /**
+   * ?amd=1 renders on a Radeon: the case the prompt exists for. ?amd=idle is
+   * the AM5 desktop whose CPU carries AMD graphics next to the card the game
+   * uses — an AMD adapter is listed, the Settings row names it, and the
+   * prompt must stay quiet. Neither: no AMD at all.
+   */
+  const amdMode = params.get('amd')
+  const radeon = { vendorId: '0x1002', deviceId: '0x73df', amd: true, software: false, name: 'AMD Radeon RX 6700 XT' }
+  const geforce = { vendorId: '0x10de', deviceId: '0x2484', amd: false, software: false, name: 'NVIDIA GeForce RTX 3070' }
+  const integratedAmd = { vendorId: '0x1002', deviceId: '0x13c0', amd: true, software: false, name: 'AMD Radeon(TM) Graphics' }
+  const gpu: GpuDetection =
+    amdMode === 'idle'
+      ? {
+          amdDetected: true,
+          amdActive: false,
+          adapters: [
+            { ...geforce, active: true },
+            { ...integratedAmd, active: false },
+          ],
+        }
+      : amdMode !== null
+        ? { amdDetected: true, amdActive: true, adapters: [{ ...radeon, active: true }] }
+        : { amdDetected: false, amdActive: false, adapters: [{ ...geforce, active: true }] }
 
   /** The Compatibility fix on a fake release/: the switch is the only state, the foreign file refuses every operation. */
   const foreignDll = (): DxvkResult | null =>

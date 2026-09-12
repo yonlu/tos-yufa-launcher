@@ -188,17 +188,26 @@ export interface SettingsSetResult {
 export interface GpuAdapter {
   vendorId: string | null
   deviceId: string | null
-  /** Electron's `active` flag: the adapter Chromium renders on. A hybrid laptop lists the other one as inactive. */
+  /** The adapter Chromium renders on, as the complete probe named it. False on every adapter when that probe said nothing. */
   active: boolean
   /** PCI vendor 0x1002. */
   amd: boolean
+  /** A renderer Windows provides rather than a card on the bus: Basic Render Driver, WARP. Never what the game runs on. */
+  software: boolean
   /** Electron's `deviceString` when it reports one; null in a basic probe that lacks it. */
   name: string | null
 }
 
-/** Whether the Compatibility fix should be offered. Any listed AMD adapter counts, active or not. */
+/**
+ * What the launcher knows about this machine's graphics. `adapters` is the
+ * inventory, every adapter Windows lists. `amdDetected` says one of them is
+ * AMD, which is what the Settings row describes; `amdActive` says AMD is the
+ * one being rendered on, which is what the prompt turns on (ADR 0003), and is
+ * null when Chromium could not name a real adapter.
+ */
 export interface GpuDetection {
   amdDetected: boolean
+  amdActive: boolean | null
   adapters: GpuAdapter[]
 }
 

@@ -17,8 +17,34 @@ export function compatibilityPromptDecision(input: {
   settings: Pick<Settings, 'amdCompatibilityEnabled' | 'amdCompatibilityPrompted'> | null
 }): PromptDecision {
   const { state, gpu, settings } = input
-  if (!PROMPT_STATES.has(state) || !gpu?.amdDetected || !settings || settings.amdCompatibilityPrompted) return 'wait'
+  if (!PROMPT_STATES.has(state) || !amdRenders(gpu) || !settings || settings.amdCompatibilityPrompted) return 'wait'
   return settings.amdCompatibilityEnabled ? 'settle' : 'show'
+}
+
+/**
+ * Will the game render on AMD? What the unasked prompt turns on (ADR 0003):
+ * an AMD adapter merely being present is not enough, because a desktop whose
+ * CPU carries integrated AMD graphics lists one next to the card the game
+ * actually uses, and asking those players to translate D3D9 to Vulkan is
+ * wrong.
+ *
+ * `amdActive` answers it outright wherever Chromium named the adapter it
+ * renders on. It is null when nothing real was named — hardware acceleration
+ * off leaves Chromium on Microsoft's software renderer, which reports no
+ * hardware at all — and then the fallback is the only thing left to say: on a
+ * machine whose every real adapter is AMD, there is nothing else the game
+ * could pick.
+ *
+ * The case this gives up is the hybrid laptop that renders the launcher on a
+ * non-AMD chip and the game on an AMD one. Those players reach the fix
+ * through the switch in Settings, which is always offered; the prompt says so
+ * before it is dismissed.
+ */
+export function amdRenders(gpu: GpuDetection | null): boolean {
+  if (!gpu?.amdDetected) return false
+  if (gpu.amdActive !== null) return gpu.amdActive
+  const real = gpu.adapters.filter((a) => !a.software)
+  return real.length > 0 && real.every((a) => a.amd)
 }
 
 /** The AMD adapter's name for the prompt and the switch; null when none is listed or it came without one. */

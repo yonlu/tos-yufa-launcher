@@ -347,32 +347,43 @@ async function detectGamePath(): Promise<string> {
   return ''
 }
 
-/** What YUFA_GPU=amd reports: one AMD adapter, named so a screenshot says where it came from. */
+/** What YUFA_GPU=amd reports: one AMD adapter, rendering, named so a screenshot says where it came from. */
 function pretendAmdGpu(): GpuDetection {
   return {
     amdDetected: true,
-    adapters: [{ vendorId: '0x1002', deviceId: null, active: true, amd: true, name: 'AMD Radeon (YUFA_GPU=amd)' }],
+    amdActive: true,
+    adapters: [{ vendorId: '0x1002', deviceId: null, active: true, amd: true, software: false, name: 'AMD Radeon (YUFA_GPU=amd)' }],
   }
 }
 
-/** How long the GPU probe may hold up app info before the launcher assumes no AMD adapter. */
+/** How long both GPU probes together may hold up app info before the launcher assumes no AMD adapter. */
 const GPU_INFO_TIMEOUT_MS = 5000
 
 /**
- * The Compatibility fix's detection (ADR 0003): Chromium's own GPU list, no
- * WMI, no elevation. A probe that fails or stalls yields no AMD and a log
- * line; the switch in Settings still works by hand.
+ * The Compatibility fix's detection (ADR 0003): Chromium's own GPU lists, no
+ * WMI, no elevation. `basic` is the inventory and `complete` names the
+ * adapter being rendered on; see `detectAmdGpu` for why both are needed. The
+ * complete probe is the slower of the two (~150 ms here) and the optional
+ * one: without it the launcher still lists the adapters and still offers the
+ * switch in Settings, it just will not raise the prompt on its own. A probe
+ * that fails or stalls yields no AMD and a log line.
  */
 async function probeGpu(): Promise<GpuDetection> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    const info = await Promise.race([
-      app.getGPUInfo('basic'),
+    const [basic, complete] = await Promise.race([
+      Promise.all([
+        app.getGPUInfo('basic'),
+        app.getGPUInfo('complete').catch((err: unknown) => {
+          log.warn(`gpu: complete probe failed (${err instanceof Error ? err.message : String(err)}); renderer unknown`)
+          return undefined
+        }),
+      ]),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`no answer in ${GPU_INFO_TIMEOUT_MS} ms`)), GPU_INFO_TIMEOUT_MS)
       }),
     ])
-    const result = detectAmdGpu(info)
+    const result = detectAmdGpu(basic, complete)
     log.info(`gpu: ${describeGpu(result)}`)
     return result
   } catch (err) {
