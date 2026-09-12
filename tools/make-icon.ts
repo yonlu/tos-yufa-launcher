@@ -1,15 +1,19 @@
-// Generates packages/launcher/build/icon.ico (+ icon.png) from the website brand mark.
+// Generates packages/launcher/build/icon.ico (+ icon.png) from the brand mark.
 // Usage: npm run make-icon [-- <source-image>]
-// The outputs are committed; builds never need sharp at CI time.
+// The default source is the launcher's own logo asset, so the icon is
+// reproducible from the repo alone; pass a higher-resolution master to
+// override. The outputs are committed; builds never need sharp at CI time.
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import pngToIco from 'png-to-ico'
 import sharp from 'sharp'
 
-const source = process.argv[2] ?? 'C:/workspace/tos-classic/website/public/tos-classic-logo.webp'
-const outDir = join(import.meta.dirname, '../packages/launcher/build')
+const repoRoot = join(import.meta.dirname, '..')
+const source = process.argv[2] ?? join(repoRoot, 'packages/launcher/src/renderer/src/assets/logo.webp')
+const outDir = join(repoRoot, 'packages/launcher/build')
 
-// The mark sits centered in a large transparent canvas — trim first or it renders tiny.
+// A mark centered in a large transparent canvas renders tiny — trim first.
+// The committed asset is already tight, so this is a no-op for the default.
 const trimmed = await sharp(source).trim().toBuffer()
 const { width = 0, height = 0 } = await sharp(trimmed).metadata()
 const side = Math.max(width, height)

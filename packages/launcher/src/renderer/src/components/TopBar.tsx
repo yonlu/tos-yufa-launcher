@@ -61,7 +61,7 @@ export function TopBar({ view, onNavigate }: { view: ShellView; onNavigate: (vie
   const { t } = useTranslation()
   return (
     <header style={DRAG} className="relative z-10 flex h-[68px] shrink-0 items-center gap-5 pl-10 pr-3">
-      <img src={logoUrl} alt="ToS Classic" width={70} height={44} className="h-11 w-auto" />
+      <img src={logoUrl} alt="ToS Classic" width={43} height={44} className="h-11 w-auto" />
       <nav style={NO_DRAG} aria-label={t('nav.label')} className="ml-5 flex items-center gap-[22px]">
         <NavLink active={view === 'home'} onClick={() => onNavigate('home')}>
           {t('nav.home')}
